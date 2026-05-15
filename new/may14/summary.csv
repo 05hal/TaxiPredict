@@ -1,0 +1,2 @@
+dataset,source_rows,valid_rows,invalid_rows,aggregated_rows,total_pickups,start_datetime,end_datetime,unique_geohashes,geohash_precision,time_bins_per_day,minutes_per_bin
+may14,652435,652435,0,493903,652435,2014-05-01 00:00:00,2014-05-31 23:59:00,18289,7,48,30

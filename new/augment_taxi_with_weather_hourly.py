@@ -81,6 +81,24 @@ def parse_precip(series: pd.Series) -> tuple[pd.Series, pd.Series]:
     return precip, is_precip
 
 
+def quantile_level(series: pd.Series, bins: int) -> pd.Series:
+    numeric = pd.to_numeric(series, errors="coerce")
+    result = pd.Series(pd.NA, index=numeric.index, dtype="Int64")
+    valid = numeric.dropna()
+    unique_count = valid.nunique()
+    if unique_count == 0:
+        return result
+    if unique_count == 1:
+        result.loc[valid.index] = 0
+        return result
+
+    q = min(bins, unique_count)
+    ranked = valid.rank(method="first")
+    binned = pd.qcut(ranked, q=q, labels=False, duplicates="drop").astype("Int64")
+    result.loc[binned.index] = binned
+    return result
+
+
 def add_dense_weather_features(weather_hourly: pd.DataFrame) -> pd.DataFrame:
     w = weather_hourly.sort_values("dt_hour").copy()
 
@@ -97,19 +115,11 @@ def add_dense_weather_features(weather_hourly: pd.DataFrame) -> pd.DataFrame:
     ).astype("Int64")
     w["vis_level"] = pd.cut(
         vis,
-        bins=[-float("inf"), 2, 5, 8, float("inf")],
+        bins=[-float("inf"), 4, 10, 15, float("inf")],
         labels=[3, 2, 1, 0],
     ).astype("Int64")
-    w["wind_level"] = pd.cut(
-        wspd,
-        bins=[-float("inf"), 5, 15, 25, float("inf")],
-        labels=[0, 1, 2, 3],
-    ).astype("Int64")
-    w["temp_level"] = pd.cut(
-        temp,
-        bins=[-float("inf"), 32, 50, 75, 90, float("inf")],
-        labels=[0, 1, 2, 3, 4],
-    ).astype("Int64")
+    w["wind_level"] = quantile_level(wspd, bins=4)
+    w["temp_level"] = quantile_level(temp, bins=5)
 
     w["weather_severity"] = (
         w["precip_level"].fillna(0).astype(float)
@@ -117,6 +127,7 @@ def add_dense_weather_features(weather_hourly: pd.DataFrame) -> pd.DataFrame:
         + w["wind_level"].fillna(0).astype(float)
         + w["is_rain"].fillna(0).astype(float)
         + w["is_fog"].fillna(0).astype(float)
+        + ((temp < 0) | (temp > 27)).fillna(False).astype(float)
     )
 
     w["precip_lag_1h"] = precip.shift(1)
@@ -127,7 +138,7 @@ def add_dense_weather_features(weather_hourly: pd.DataFrame) -> pd.DataFrame:
     w["weather_severity_rolling_3h"] = (
         w["weather_severity"].rolling(3, min_periods=1).mean()
     )
-    w["bad_weather"] = (w["weather_severity"] >= 3).astype(int)
+    w["bad_weather"] = (w["weather_severity"] >= 2).astype(int)
 
     return w
 

@@ -1,3 +1,5 @@
+首先解压jun14 may14到当前目录
+
 1.处理天气数据：
 五月
 python features\\augment\_taxi\_with\_weather\_hourly.py ^

@@ -8,6 +8,7 @@ from pandas.tseries.holiday import USFederalHolidayCalendar
 
 
 DAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+SCRIPT_DIR = Path(__file__).resolve().parent
 
 
 def time_features_for_hour(hour: pd.Series) -> pd.DataFrame:
@@ -80,6 +81,57 @@ def parse_precip(series: pd.Series) -> tuple[pd.Series, pd.Series]:
     return precip, is_precip
 
 
+def add_dense_weather_features(weather_hourly: pd.DataFrame) -> pd.DataFrame:
+    w = weather_hourly.sort_values("dt_hour").copy()
+
+    precip = w["precip"].fillna(0)
+    vis = w["vis"]
+    wspd = w["wspd"]
+    temp = w["temp"]
+
+    w["precip_level"] = pd.cut(
+        precip,
+        bins=[-0.001, 0, 0.01, 0.1, 0.3, float("inf")],
+        labels=[0, 1, 2, 3, 4],
+        include_lowest=True,
+    ).astype("Int64")
+    w["vis_level"] = pd.cut(
+        vis,
+        bins=[-float("inf"), 2, 5, 8, float("inf")],
+        labels=[3, 2, 1, 0],
+    ).astype("Int64")
+    w["wind_level"] = pd.cut(
+        wspd,
+        bins=[-float("inf"), 5, 15, 25, float("inf")],
+        labels=[0, 1, 2, 3],
+    ).astype("Int64")
+    w["temp_level"] = pd.cut(
+        temp,
+        bins=[-float("inf"), 32, 50, 75, 90, float("inf")],
+        labels=[0, 1, 2, 3, 4],
+    ).astype("Int64")
+
+    w["weather_severity"] = (
+        w["precip_level"].fillna(0).astype(float)
+        + w["vis_level"].fillna(0).astype(float)
+        + w["wind_level"].fillna(0).astype(float)
+        + w["is_rain"].fillna(0).astype(float)
+        + w["is_fog"].fillna(0).astype(float)
+    )
+
+    w["precip_lag_1h"] = precip.shift(1)
+    w["precip_rolling_3h"] = precip.rolling(3, min_periods=1).sum()
+    w["temp_change_1h"] = temp.diff()
+    w["vis_change_1h"] = vis.diff()
+    w["weather_severity_lag_1h"] = w["weather_severity"].shift(1)
+    w["weather_severity_rolling_3h"] = (
+        w["weather_severity"].rolling(3, min_periods=1).mean()
+    )
+    w["bad_weather"] = (w["weather_severity"] >= 3).astype(int)
+
+    return w
+
+
 def load_weather_hourly(weather_csv: Path) -> pd.DataFrame:
     w = pd.read_csv(weather_csv, low_memory=False)
 
@@ -127,6 +179,7 @@ def load_weather_hourly(weather_csv: Path) -> pd.DataFrame:
     w["precip"], w["is_precip"] = parse_precip(w["precip"])
     w = pd.concat([w, build_weather_flags(w["present_weather"])], axis=1)
     w = w.drop(columns=["present_weather"])
+    w = add_dense_weather_features(w)
     return w
 
 
@@ -154,7 +207,13 @@ def build_us_federal_holiday_index(years: set[int]) -> pd.DatetimeIndex:
     return cal.holidays(start=start, end=end).normalize()
 
 
-def add_peak_flags(hour: pd.Series, morning_start: int, morning_end: int, evening_start: int, evening_end: int) -> pd.DataFrame:
+def add_peak_flags(
+    hour: pd.Series,
+    morning_start: int,
+    morning_end: int,
+    evening_start: int,
+    evening_end: int,
+) -> pd.DataFrame:
     h = pd.to_numeric(hour, errors="coerce")
     morning = h.between(morning_start, morning_end, inclusive="both")
     evening = h.between(evening_start, evening_end, inclusive="both")
@@ -225,6 +284,18 @@ def augment_taxi_chunk(
         "is_rain",
         "is_snow",
         "is_fog",
+        "precip_level",
+        "vis_level",
+        "wind_level",
+        "temp_level",
+        "weather_severity",
+        "precip_lag_1h",
+        "precip_rolling_3h",
+        "temp_change_1h",
+        "vis_change_1h",
+        "weather_severity_lag_1h",
+        "weather_severity_rolling_3h",
+        "bad_weather",
         "is_holiday",
         "is_morning_peak",
         "is_evening_peak",
@@ -241,25 +312,18 @@ def main() -> int:
     parser.add_argument(
         "--taxi-csv",
         type=Path,
-        default=Path(r"d:\mine\bjtu\交通模型预测\TaxiPredict-dev\new\jun14\taxi_prediction_style_aggregated.csv"),
+        default=SCRIPT_DIR / "jun14" / "taxi_prediction_style_aggregated.csv",
     )
     parser.add_argument(
         "--weather-csv",
         type=Path,
-        default=Path(r"d:\mine\bjtu\交通模型预测\TaxiPredict-dev\new\LCD_USW00094728_2014.csv"),
+        default=SCRIPT_DIR / "LCD_USW00094728_2014.csv",
     )
     parser.add_argument(
         "--out-csv",
         type=Path,
-        default=Path(
-            r"d:\mine\bjtu\交通模型预测\TaxiPredict-dev\new\jun14\taxi_prediction_hourly_with_weather.csv"
-        ),
+        default=SCRIPT_DIR / "jun14" / "taxi_prediction_hourly_with_weather.csv",
     )
-    args = parser.parse_args()
-
-    if args.out_csv.resolve() == args.taxi_csv.resolve():
-        raise ValueError("out-csv must be different from taxi-csv (refusing to overwrite input)")
-
     parser.add_argument("--chunksize", type=int, default=200_000)
     parser.add_argument("--progress-every", type=int, default=200_000)
     parser.add_argument("--morning-peak-start", type=int, default=7)
@@ -271,6 +335,7 @@ def main() -> int:
 
     if args.out_csv.resolve() == args.taxi_csv.resolve():
         raise ValueError("out-csv must be different from taxi-csv (refusing to overwrite input)")
+    args.out_csv.parent.mkdir(parents=True, exist_ok=True)
 
     print("Loading hourly weather...")
     weather_hourly = load_weather_hourly(args.weather_csv)

@@ -1,0 +1,4 @@
+/new/may14/taxi_prediction_hourly_with_weather.csv
+/new/jun14/taxi_prediction_hourly_with_weather.csv
+/new/result_*/
+*.pkl

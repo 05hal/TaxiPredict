@@ -1,7 +1,8 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
+import type { LayerGroup, Map as LeafletMap } from "leaflet";
 import {
   Card,
   ConfigProvider,
@@ -767,6 +768,121 @@ function MatrixMap({ data }: { data: number[][] }) {
   );
 }
 
+function RoadDemandMap({
+  points,
+}: {
+  points: Array<{ geohash: string; pickups: number; latitude: number; longitude: number }>;
+}) {
+  const mapContainerRef = useRef<HTMLDivElement | null>(null);
+  const mapRef = useRef<LeafletMap | null>(null);
+  const hotspotLayerRef = useRef<LayerGroup | null>(null);
+  const featuredPoints = useMemo(() => points.slice(0, 18), [points]);
+  const maxPickups = Math.max(...points.map((item) => item.pickups), 1);
+
+  useEffect(() => {
+    let isDisposed = false;
+
+    async function renderMap() {
+      const leaflet = await import("leaflet");
+      if (isDisposed || !mapContainerRef.current) return;
+
+      if (!mapRef.current) {
+        mapRef.current = leaflet
+          .map(mapContainerRef.current, {
+            center: [40.73061, -73.935242],
+            zoom: 11,
+            zoomControl: false,
+            attributionControl: true,
+            scrollWheelZoom: false,
+          })
+          .setView([40.73061, -73.935242], 11);
+        leaflet.control.zoom({ position: "bottomright" }).addTo(mapRef.current);
+        leaflet
+          .tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+            attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+            maxZoom: 19,
+          })
+          .addTo(mapRef.current);
+        hotspotLayerRef.current = leaflet.layerGroup().addTo(mapRef.current);
+      }
+
+      const hotspotLayer = hotspotLayerRef.current;
+      hotspotLayer?.clearLayers();
+      if (!hotspotLayer) return;
+
+      const bounds: Array<[number, number]> = [];
+      for (const [index, item] of featuredPoints.entries()) {
+        if (!Number.isFinite(item.latitude) || !Number.isFinite(item.longitude)) continue;
+
+        const intensity = item.pickups / maxPickups;
+        const marker = leaflet
+          .circleMarker([item.latitude, item.longitude], {
+            radius: 6 + intensity * 16,
+            color: index < 5 ? "#fef3c7" : "#cffafe",
+            weight: 1.4,
+            fillColor: index < 5 ? "#f59e0b" : "#06b6d4",
+            fillOpacity: 0.72,
+          })
+          .bindTooltip(
+            `<strong>${item.geohash}</strong><br/>${formatNumber(item.pickups)} 单<br/>${item.latitude.toFixed(4)}, ${item.longitude.toFixed(4)}`,
+            { direction: "top", opacity: 0.92 },
+          );
+
+        marker.addTo(hotspotLayer);
+        bounds.push([item.latitude, item.longitude]);
+      }
+
+      if (bounds.length > 1) {
+        mapRef.current.fitBounds(bounds, { padding: [28, 28], maxZoom: 12 });
+      }
+    }
+
+    renderMap();
+
+    return () => {
+      isDisposed = true;
+    };
+  }, [featuredPoints, maxPickups]);
+
+  useEffect(
+    () => () => {
+      mapRef.current?.remove();
+      mapRef.current = null;
+    },
+    [],
+  );
+
+  return (
+    <GlassCard className="h-full">
+      <div className="mb-5 flex items-center justify-between gap-4">
+        <div>
+          <p className="text-sm text-slate-300">NYC 道路需求地图</p>
+          <h3 className="mt-1 text-2xl font-black text-white">道路底图与热点区域</h3>
+        </div>
+        <Tag color="cyan" className="rounded-full">
+          Top {featuredPoints.length}
+        </Tag>
+      </div>
+      <div className="relative overflow-hidden rounded-[2rem] border border-cyan-300/15 bg-slate-950/75 p-4">
+        <div className="absolute left-4 top-4 z-10 flex flex-wrap gap-2 text-[10px]">
+          <span className="rounded-full bg-cyan-300/15 px-3 py-1 text-cyan-100">OpenStreetMap 道路网络</span>
+          <span className="rounded-full bg-amber-300/15 px-3 py-1 text-amber-100">橙色需求热点</span>
+        </div>
+        <div ref={mapContainerRef} className="taxi-road-map h-[420px] w-full rounded-[1.5rem]" />
+        <div className="mt-3 grid gap-2 sm:grid-cols-3">
+          {featuredPoints.slice(0, 3).map((item, index) => (
+            <div key={item.geohash} className="rounded-2xl border border-white/10 bg-white/[0.05] p-3">
+              <p className="text-xs text-slate-400">热点 #{index + 1}</p>
+              <p className="mt-1 font-mono text-sm font-black text-white">{item.geohash}</p>
+              <p className="text-xs text-cyan-100">{formatNumber(item.pickups)} 单</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
 function PageNavigation({
   activePageIndex,
   onChange,
@@ -1133,8 +1249,8 @@ export default function Home() {
             <section className="py-6">
               <SectionTitle
                 eyebrow="Operations"
-                title="订单结构与调度基地"
-                description="对比小时需求、峰值时段和调度基地占比，用于判断运力投放的时段和基地优先级。"
+                title="道路需求与运营结构"
+                description="参考 NYC 道路底图需求地图的逻辑，把热点区域和小时负载放在同一页，帮助判断道路网络上的运力压力。"
               />
               <div className="grid gap-5 lg:grid-cols-[1fr_0.95fr]">
                 <GlassCard>
@@ -1150,7 +1266,7 @@ export default function Home() {
                     ))}
                   </div>
                 </GlassCard>
-                <BaseDistributionPanel data={dashboardData.baseDistribution} maxBaseOrders={maxBaseOrders} />
+                <RoadDemandMap points={dashboardData.geohashPoints} />
               </div>
               <div className="mt-5 grid gap-5 lg:grid-cols-[0.8fr_1.2fr]">
                 <GlassCard>
@@ -1161,6 +1277,9 @@ export default function Home() {
                   <SimpleBarChart data={dashboardData.weekdayDemand} />
                 </GlassCard>
                 <HeatGrid data={dashboardData.weekdayHourHeatmap} />
+              </div>
+              <div className="mt-5">
+                <BaseDistributionPanel data={dashboardData.baseDistribution} maxBaseOrders={maxBaseOrders} />
               </div>
             </section>
           ) : null}

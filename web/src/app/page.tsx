@@ -217,6 +217,10 @@ interface DashboardData {
 
 const dashboardData = dashboardJson as unknown as DashboardData;
 const numberFormatter = new Intl.NumberFormat("zh-CN");
+const icpRecord = "京ICP备2025149122号-1";
+const icpRecordUrl = "https://beian.miit.gov.cn/";
+const publicSecurityRecord = "京公网安备11010802046540号";
+const publicSecurityRecordUrl = "http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=11010802046540";
 const pageItems = [
   { key: "overview", label: "运营总览" },
   { key: "operations", label: "运营结构" },
@@ -1079,6 +1083,36 @@ function ImagePanel({
   );
 }
 
+function ComplianceFooter() {
+  return (
+    <footer className="mt-12 border-t border-white/10 pb-8 pt-6 text-center text-xs leading-7 text-slate-400">
+      <div className="flex flex-wrap items-center justify-center gap-x-6 gap-y-2">
+        <a
+          href={icpRecordUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="transition hover:text-cyan-100"
+          aria-label={`工信部备案 ${icpRecord}`}
+        >
+          {icpRecord}
+        </a>
+        <a
+          href={publicSecurityRecordUrl}
+          target="_blank"
+          rel="noreferrer"
+          className="transition hover:text-cyan-100"
+          aria-label={`公安联网备案 ${publicSecurityRecord}`}
+        >
+          {publicSecurityRecord}
+        </a>
+      </div>
+      <p className="mt-2 text-[11px] text-slate-500">
+        本站已按要求展示备案信息，请确保域名、主体信息与备案登记内容一致后再正式对外发布。
+      </p>
+    </footer>
+  );
+}
+
 function MonthPanel({ month }: { month: MonthData }) {
   return (
     <div className="grid gap-5 xl:grid-cols-[0.9fr_1.1fr]">
@@ -1452,6 +1486,8 @@ export default function Home() {
               </div>
             </section>
           ) : null}
+
+          <ComplianceFooter />
         </div>
         <Modal
           centered

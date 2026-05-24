@@ -1,0 +1,1009 @@
+{
+  "generatedAt": "2026-05-24T03:25:57.394Z",
+  "summary": {
+    "totalPickups": 1316279,
+    "totalRegions": 19517,
+    "totalAggregatedRows": 999992,
+    "momGrowth": 1.75,
+    "coverageRange": "2014-05-01 至 2014-06-30"
+  },
+  "months": [
+    {
+      "key": "may14",
+      "label": "2014 年 5 月",
+      "shortLabel": "5 月",
+      "sourceRows": 652435,
+      "validRows": 652435,
+      "invalidRows": 0,
+      "aggregatedRows": 493903,
+      "totalPickups": 652435,
+      "dailyAverage": 21046,
+      "startDatetime": "2014-05-01 00:00:00",
+      "endDatetime": "2014-05-31 23:59:00",
+      "uniqueGeohashes": 18289,
+      "geohashPrecision": 7,
+      "timeBinsPerDay": 48,
+      "minutesPerBin": 30,
+      "baseCounts": [
+        {
+          "base": "B02512",
+          "pickups": 36765
+        },
+        {
+          "base": "B02598",
+          "pickups": 260549
+        },
+        {
+          "base": "B02617",
+          "pickups": 122734
+        },
+        {
+          "base": "B02682",
+          "pickups": 222883
+        },
+        {
+          "base": "B02764",
+          "pickups": 9504
+        }
+      ],
+      "peakHour": {
+        "hour": 17,
+        "pickups": 51508
+      },
+      "hourly": [
+        {
+          "hour": 0,
+          "pickups": 13875
+        },
+        {
+          "hour": 1,
+          "pickups": 8186
+        },
+        {
+          "hour": 2,
+          "pickups": 5372
+        },
+        {
+          "hour": 3,
+          "pickups": 5946
+        },
+        {
+          "hour": 4,
+          "pickups": 6945
+        },
+        {
+          "hour": 5,
+          "pickups": 10789
+        },
+        {
+          "hour": 6,
+          "pickups": 21015
+        },
+        {
+          "hour": 7,
+          "pickups": 27413
+        },
+        {
+          "hour": 8,
+          "pickups": 25460
+        },
+        {
+          "hour": 9,
+          "pickups": 20507
+        },
+        {
+          "hour": 10,
+          "pickups": 20801
+        },
+        {
+          "hour": 11,
+          "pickups": 22055
+        },
+        {
+          "hour": 12,
+          "pickups": 23595
+        },
+        {
+          "hour": 13,
+          "pickups": 27699
+        },
+        {
+          "hour": 14,
+          "pickups": 34363
+        },
+        {
+          "hour": 15,
+          "pickups": 43087
+        },
+        {
+          "hour": 16,
+          "pickups": 49127
+        },
+        {
+          "hour": 17,
+          "pickups": 51508
+        },
+        {
+          "hour": 18,
+          "pickups": 48965
+        },
+        {
+          "hour": 19,
+          "pickups": 42387
+        },
+        {
+          "hour": 20,
+          "pickups": 40731
+        },
+        {
+          "hour": 21,
+          "pickups": 42217
+        },
+        {
+          "hour": 22,
+          "pickups": 35556
+        },
+        {
+          "hour": 23,
+          "pickups": 24836
+        }
+      ],
+      "weekdays": [
+        {
+          "weekday": "Monday",
+          "pickups": 63846
+        },
+        {
+          "weekday": "Tuesday",
+          "pickups": 76662
+        },
+        {
+          "weekday": "Wednesday",
+          "pickups": 89857
+        },
+        {
+          "weekday": "Thursday",
+          "pickups": 128921
+        },
+        {
+          "weekday": "Friday",
+          "pickups": 133991
+        },
+        {
+          "weekday": "Saturday",
+          "pickups": 102990
+        },
+        {
+          "weekday": "Sunday",
+          "pickups": 56168
+        }
+      ],
+      "daily": [
+        {
+          "day": "5-1",
+          "pickups": 23375
+        },
+        {
+          "day": "5-2",
+          "pickups": 24235
+        },
+        {
+          "day": "5-3",
+          "pickups": 22234
+        },
+        {
+          "day": "5-4",
+          "pickups": 13918
+        },
+        {
+          "day": "5-5",
+          "pickups": 17859
+        },
+        {
+          "day": "5-6",
+          "pickups": 19300
+        },
+        {
+          "day": "5-7",
+          "pickups": 21891
+        },
+        {
+          "day": "5-8",
+          "pickups": 27513
+        },
+        {
+          "day": "5-9",
+          "pickups": 26385
+        },
+        {
+          "day": "5-10",
+          "pickups": 22550
+        },
+        {
+          "day": "5-11",
+          "pickups": 14901
+        },
+        {
+          "day": "5-12",
+          "pickups": 17470
+        },
+        {
+          "day": "5-13",
+          "pickups": 19498
+        },
+        {
+          "day": "5-14",
+          "pickups": 22218
+        },
+        {
+          "day": "5-15",
+          "pickups": 26301
+        },
+        {
+          "day": "5-16",
+          "pickups": 32493
+        },
+        {
+          "day": "5-17",
+          "pickups": 22294
+        },
+        {
+          "day": "5-18",
+          "pickups": 16508
+        },
+        {
+          "day": "5-19",
+          "pickups": 18315
+        },
+        {
+          "day": "5-20",
+          "pickups": 20860
+        },
+        {
+          "day": "5-21",
+          "pickups": 23508
+        },
+        {
+          "day": "5-22",
+          "pickups": 26802
+        },
+        {
+          "day": "5-23",
+          "pickups": 26465
+        },
+        {
+          "day": "5-24",
+          "pickups": 14651
+        },
+        {
+          "day": "5-25",
+          "pickups": 10841
+        },
+        {
+          "day": "5-26",
+          "pickups": 10202
+        },
+        {
+          "day": "5-27",
+          "pickups": 17004
+        },
+        {
+          "day": "5-28",
+          "pickups": 22240
+        },
+        {
+          "day": "5-29",
+          "pickups": 24930
+        },
+        {
+          "day": "5-30",
+          "pickups": 24413
+        },
+        {
+          "day": "5-31",
+          "pickups": 21261
+        }
+      ],
+      "topRegions": [
+        {
+          "geohash": "dr5x1p1",
+          "pickups": 5018
+        },
+        {
+          "geohash": "dr5ryyx",
+          "pickups": 3486
+        },
+        {
+          "geohash": "dr5rznh",
+          "pickups": 2574
+        },
+        {
+          "geohash": "dr5rgbw",
+          "pickups": 2393
+        },
+        {
+          "geohash": "dr5ru4x",
+          "pickups": 2108
+        },
+        {
+          "geohash": "dr5x1pm",
+          "pickups": 2066
+        },
+        {
+          "geohash": "dr5rgbz",
+          "pickups": 1751
+        },
+        {
+          "geohash": "dr5rgbt",
+          "pickups": 1730
+        }
+      ],
+      "assets": {
+        "pickupsByHour": "/dashboard-assets/may14/pickups_by_hour.png",
+        "pickupsByDay": "/dashboard-assets/may14/pickups_by_day.png",
+        "pickupsByTime": "/dashboard-assets/may14/pickups_by_time.png",
+        "density": "/dashboard-assets/may14/pickup_density_geohash.png",
+        "densityGrid": "/dashboard-assets/may14/hourly_density_grid.png",
+        "densityGif": "/dashboard-assets/may14/hourly_pickup_densitymay.gif"
+      }
+    },
+    {
+      "key": "jun14",
+      "label": "2014 年 6 月",
+      "shortLabel": "6 月",
+      "sourceRows": 663844,
+      "validRows": 663844,
+      "invalidRows": 0,
+      "aggregatedRows": 506089,
+      "totalPickups": 663844,
+      "dailyAverage": 22128,
+      "startDatetime": "2014-06-01 00:00:00",
+      "endDatetime": "2014-06-30 23:59:00",
+      "uniqueGeohashes": 19517,
+      "geohashPrecision": 7,
+      "timeBinsPerDay": 48,
+      "minutesPerBin": 30,
+      "baseCounts": [
+        {
+          "base": "B02512",
+          "pickups": 32509
+        },
+        {
+          "base": "B02598",
+          "pickups": 242975
+        },
+        {
+          "base": "B02617",
+          "pickups": 184460
+        },
+        {
+          "base": "B02682",
+          "pickups": 194926
+        },
+        {
+          "base": "B02764",
+          "pickups": 8974
+        }
+      ],
+      "peakHour": {
+        "hour": 17,
+        "pickups": 50452
+      },
+      "hourly": [
+        {
+          "hour": 0,
+          "pickups": 14514
+        },
+        {
+          "hour": 1,
+          "pickups": 9167
+        },
+        {
+          "hour": 2,
+          "pickups": 6189
+        },
+        {
+          "hour": 3,
+          "pickups": 6937
+        },
+        {
+          "hour": 4,
+          "pickups": 7701
+        },
+        {
+          "hour": 5,
+          "pickups": 11955
+        },
+        {
+          "hour": 6,
+          "pickups": 22030
+        },
+        {
+          "hour": 7,
+          "pickups": 30834
+        },
+        {
+          "hour": 8,
+          "pickups": 29771
+        },
+        {
+          "hour": 9,
+          "pickups": 24298
+        },
+        {
+          "hour": 10,
+          "pickups": 23584
+        },
+        {
+          "hour": 11,
+          "pickups": 24155
+        },
+        {
+          "hour": 12,
+          "pickups": 25233
+        },
+        {
+          "hour": 13,
+          "pickups": 28937
+        },
+        {
+          "hour": 14,
+          "pickups": 34428
+        },
+        {
+          "hour": 15,
+          "pickups": 41586
+        },
+        {
+          "hour": 16,
+          "pickups": 48162
+        },
+        {
+          "hour": 17,
+          "pickups": 50452
+        },
+        {
+          "hour": 18,
+          "pickups": 45013
+        },
+        {
+          "hour": 19,
+          "pickups": 38203
+        },
+        {
+          "hour": 20,
+          "pickups": 40108
+        },
+        {
+          "hour": 21,
+          "pickups": 40791
+        },
+        {
+          "hour": 22,
+          "pickups": 35614
+        },
+        {
+          "hour": 23,
+          "pickups": 24182
+        }
+      ],
+      "weekdays": [
+        {
+          "weekday": "Monday",
+          "pickups": 94655
+        },
+        {
+          "weekday": "Tuesday",
+          "pickups": 88134
+        },
+        {
+          "weekday": "Wednesday",
+          "pickups": 99654
+        },
+        {
+          "weekday": "Thursday",
+          "pickups": 115325
+        },
+        {
+          "weekday": "Friday",
+          "pickups": 105056
+        },
+        {
+          "weekday": "Saturday",
+          "pickups": 81364
+        },
+        {
+          "weekday": "Sunday",
+          "pickups": 79656
+        }
+      ],
+      "daily": [
+        {
+          "day": "6-1",
+          "pickups": 15967
+        },
+        {
+          "day": "6-2",
+          "pickups": 17503
+        },
+        {
+          "day": "6-3",
+          "pickups": 22674
+        },
+        {
+          "day": "6-4",
+          "pickups": 22831
+        },
+        {
+          "day": "6-5",
+          "pickups": 28371
+        },
+        {
+          "day": "6-6",
+          "pickups": 24683
+        },
+        {
+          "day": "6-7",
+          "pickups": 20889
+        },
+        {
+          "day": "6-8",
+          "pickups": 15749
+        },
+        {
+          "day": "6-9",
+          "pickups": 23244
+        },
+        {
+          "day": "6-10",
+          "pickups": 22874
+        },
+        {
+          "day": "6-11",
+          "pickups": 25716
+        },
+        {
+          "day": "6-12",
+          "pickups": 29844
+        },
+        {
+          "day": "6-13",
+          "pickups": 31207
+        },
+        {
+          "day": "6-14",
+          "pickups": 19327
+        },
+        {
+          "day": "6-15",
+          "pickups": 14511
+        },
+        {
+          "day": "6-16",
+          "pickups": 17778
+        },
+        {
+          "day": "6-17",
+          "pickups": 21807
+        },
+        {
+          "day": "6-18",
+          "pickups": 24647
+        },
+        {
+          "day": "6-19",
+          "pickups": 28594
+        },
+        {
+          "day": "6-20",
+          "pickups": 24271
+        },
+        {
+          "day": "6-21",
+          "pickups": 19940
+        },
+        {
+          "day": "6-22",
+          "pickups": 16322
+        },
+        {
+          "day": "6-23",
+          "pickups": 17735
+        },
+        {
+          "day": "6-24",
+          "pickups": 20779
+        },
+        {
+          "day": "6-25",
+          "pickups": 26460
+        },
+        {
+          "day": "6-26",
+          "pickups": 28516
+        },
+        {
+          "day": "6-27",
+          "pickups": 24895
+        },
+        {
+          "day": "6-28",
+          "pickups": 21208
+        },
+        {
+          "day": "6-29",
+          "pickups": 17107
+        },
+        {
+          "day": "6-30",
+          "pickups": 18395
+        }
+      ],
+      "topRegions": [
+        {
+          "geohash": "dr5x1p1",
+          "pickups": 5491
+        },
+        {
+          "geohash": "dr5ryyx",
+          "pickups": 4070
+        },
+        {
+          "geohash": "dr5rgbw",
+          "pickups": 2615
+        },
+        {
+          "geohash": "dr5rznh",
+          "pickups": 2607
+        },
+        {
+          "geohash": "dr5x1pm",
+          "pickups": 2208
+        },
+        {
+          "geohash": "dr5ru4x",
+          "pickups": 2200
+        },
+        {
+          "geohash": "dr5rgbt",
+          "pickups": 2013
+        },
+        {
+          "geohash": "dr5rzn8",
+          "pickups": 1903
+        }
+      ],
+      "assets": {
+        "pickupsByHour": "/dashboard-assets/jun14/pickups_by_hour.png",
+        "pickupsByDay": "/dashboard-assets/jun14/pickups_by_day.png",
+        "pickupsByTime": "/dashboard-assets/jun14/pickups_by_time.png",
+        "density": "/dashboard-assets/jun14/pickup_density_geohash.png",
+        "densityGrid": "/dashboard-assets/jun14/hourly_density_grid.png",
+        "densityGif": "/dashboard-assets/jun14/hourly_pickup_densityjune.gif"
+      }
+    }
+  ],
+  "hourlyComparison": [
+    {
+      "hour": 0,
+      "may14": 13875,
+      "jun14": 14514,
+      "total": 28389
+    },
+    {
+      "hour": 1,
+      "may14": 8186,
+      "jun14": 9167,
+      "total": 17353
+    },
+    {
+      "hour": 2,
+      "may14": 5372,
+      "jun14": 6189,
+      "total": 11561
+    },
+    {
+      "hour": 3,
+      "may14": 5946,
+      "jun14": 6937,
+      "total": 12883
+    },
+    {
+      "hour": 4,
+      "may14": 6945,
+      "jun14": 7701,
+      "total": 14646
+    },
+    {
+      "hour": 5,
+      "may14": 10789,
+      "jun14": 11955,
+      "total": 22744
+    },
+    {
+      "hour": 6,
+      "may14": 21015,
+      "jun14": 22030,
+      "total": 43045
+    },
+    {
+      "hour": 7,
+      "may14": 27413,
+      "jun14": 30834,
+      "total": 58247
+    },
+    {
+      "hour": 8,
+      "may14": 25460,
+      "jun14": 29771,
+      "total": 55231
+    },
+    {
+      "hour": 9,
+      "may14": 20507,
+      "jun14": 24298,
+      "total": 44805
+    },
+    {
+      "hour": 10,
+      "may14": 20801,
+      "jun14": 23584,
+      "total": 44385
+    },
+    {
+      "hour": 11,
+      "may14": 22055,
+      "jun14": 24155,
+      "total": 46210
+    },
+    {
+      "hour": 12,
+      "may14": 23595,
+      "jun14": 25233,
+      "total": 48828
+    },
+    {
+      "hour": 13,
+      "may14": 27699,
+      "jun14": 28937,
+      "total": 56636
+    },
+    {
+      "hour": 14,
+      "may14": 34363,
+      "jun14": 34428,
+      "total": 68791
+    },
+    {
+      "hour": 15,
+      "may14": 43087,
+      "jun14": 41586,
+      "total": 84673
+    },
+    {
+      "hour": 16,
+      "may14": 49127,
+      "jun14": 48162,
+      "total": 97289
+    },
+    {
+      "hour": 17,
+      "may14": 51508,
+      "jun14": 50452,
+      "total": 101960
+    },
+    {
+      "hour": 18,
+      "may14": 48965,
+      "jun14": 45013,
+      "total": 93978
+    },
+    {
+      "hour": 19,
+      "may14": 42387,
+      "jun14": 38203,
+      "total": 80590
+    },
+    {
+      "hour": 20,
+      "may14": 40731,
+      "jun14": 40108,
+      "total": 80839
+    },
+    {
+      "hour": 21,
+      "may14": 42217,
+      "jun14": 40791,
+      "total": 83008
+    },
+    {
+      "hour": 22,
+      "may14": 35556,
+      "jun14": 35614,
+      "total": 71170
+    },
+    {
+      "hour": 23,
+      "may14": 24836,
+      "jun14": 24182,
+      "total": 49018
+    }
+  ],
+  "baseDistribution": [
+    {
+      "base": "B02598",
+      "may14": 260549,
+      "jun14": 242975,
+      "total": 503524,
+      "share": 38.25
+    },
+    {
+      "base": "B02682",
+      "may14": 222883,
+      "jun14": 194926,
+      "total": 417809,
+      "share": 31.74
+    },
+    {
+      "base": "B02617",
+      "may14": 122734,
+      "jun14": 184460,
+      "total": 307194,
+      "share": 23.34
+    },
+    {
+      "base": "B02512",
+      "may14": 36765,
+      "jun14": 32509,
+      "total": 69274,
+      "share": 5.26
+    },
+    {
+      "base": "B02764",
+      "may14": 9504,
+      "jun14": 8974,
+      "total": 18478,
+      "share": 1.4
+    }
+  ],
+  "featureInsights": [
+    {
+      "feature": "time_sin",
+      "featureType": "numeric",
+      "importanceScore": 0.136744,
+      "pearsonCorr": -0.127217,
+      "spearmanCorr": -0.146271,
+      "entropy": 3.289578,
+      "normalizedEntropy": 0.990262,
+      "uniqueCount": 38,
+      "missingRate": 0,
+      "sourcePath": "new/feature_analysis_report.md"
+    },
+    {
+      "feature": "time_num",
+      "featureType": "numeric",
+      "importanceScore": 0.126194,
+      "pearsonCorr": 0.120119,
+      "spearmanCorr": 0.13227,
+      "entropy": 3.30527,
+      "normalizedEntropy": 0.994985,
+      "uniqueCount": 48,
+      "missingRate": 0,
+      "sourcePath": "new/feature_analysis_report.md"
+    },
+    {
+      "feature": "time_cat",
+      "featureType": "datetime",
+      "importanceScore": 0.126194,
+      "pearsonCorr": 0.120119,
+      "spearmanCorr": 0.13227,
+      "entropy": 5.415871,
+      "normalizedEntropy": 0.969724,
+      "uniqueCount": 48,
+      "missingRate": 0,
+      "sourcePath": "new/feature_analysis_report.md"
+    },
+    {
+      "feature": "is_evening_peak",
+      "featureType": "boolean",
+      "importanceScore": 0.097074,
+      "pearsonCorr": 0.090006,
+      "spearmanCorr": 0.104142,
+      "entropy": 0,
+      "normalizedEntropy": 0,
+      "uniqueCount": 2,
+      "missingRate": 0,
+      "sourcePath": "new/feature_analysis_report.md"
+    },
+    {
+      "feature": "temp_change_1h",
+      "featureType": "numeric",
+      "importanceScore": 0.080642,
+      "pearsonCorr": -0.076458,
+      "spearmanCorr": -0.084826,
+      "entropy": 3.029152,
+      "normalizedEntropy": 0.911865,
+      "uniqueCount": 55,
+      "missingRate": 0,
+      "sourcePath": "new/feature_analysis_report.md"
+    }
+  ],
+  "dataSources": [
+    {
+      "name": "月度摘要与基础指标",
+      "paths": [
+        "new/may14/summary.csv",
+        "new/jun14/summary.csv"
+      ],
+      "usage": "总订单量、有效记录、聚合样本、时间范围、Geohash 覆盖。"
+    },
+    {
+      "name": "调度基地分布",
+      "paths": [
+        "new/may14/base_counts.csv",
+        "new/jun14/base_counts.csv"
+      ],
+      "usage": "基地订单量、双月汇总占比。"
+    },
+    {
+      "name": "半小时 Geohash 聚合订单",
+      "paths": [
+        "new/may14/taxi_prediction_style_aggregated.csv",
+        "new/jun14/taxi_prediction_style_aggregated.csv"
+      ],
+      "usage": "小时曲线、峰值时段、热点区域 Top 8。"
+    },
+    {
+      "name": "预处理与模型图片",
+      "paths": [
+        "data_preprocess/output/*.png",
+        "new/may14/*.png|*.gif",
+        "new/jun14/*.png|*.gif",
+        "new/models/*.png"
+      ],
+      "usage": "天气关系图、空间热力图、模型预测/特征重要性图片展示。"
+    },
+    {
+      "name": "特征相关性报告",
+      "paths": [
+        "new/feature_analysis_report.md"
+      ],
+      "usage": "特征名、类型、importance_score、Pearson/Spearman、熵值等表格字段。"
+    }
+  ],
+  "assets": {
+    "preprocess": {
+      "hourlyOrders": "/dashboard-assets/preprocess/hourly_orders.png",
+      "weekdayOrders": "/dashboard-assets/preprocess/weekday_orders.png",
+      "topRegions": "/dashboard-assets/preprocess/top_regions.png",
+      "temperatureOrders": "/dashboard-assets/preprocess/temperature_orders.png",
+      "precipitationOrders": "/dashboard-assets/preprocess/precipitation_orders.png"
+    },
+    "models": [
+      {
+        "title": "LightGBM 近一周预测",
+        "src": "/dashboard-assets/models/lightgbm_actual_vs_pred_last_week.png"
+      },
+      {
+        "title": "LightGBM 特征重要性",
+        "src": "/dashboard-assets/models/lightgbm_feature_importance.png"
+      },
+      {
+        "title": "CatBoost 预测对比",
+        "src": "/dashboard-assets/models/catboost_actual_vs_pred.png"
+      },
+      {
+        "title": "CatBoost 特征重要性",
+        "src": "/dashboard-assets/models/catboost_feature_importance.png"
+      },
+      {
+        "title": "GRU 预测对比",
+        "src": "/dashboard-assets/models/gru_actual_vs_pred.png"
+      },
+      {
+        "title": "GRU 损失曲线",
+        "src": "/dashboard-assets/models/gru_loss_curve.png"
+      }
+    ]
+  }
+}

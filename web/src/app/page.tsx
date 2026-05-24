@@ -221,6 +221,8 @@ const icpRecord = "京ICP备2025149122号-1";
 const icpRecordUrl = "https://beian.miit.gov.cn/";
 const publicSecurityRecord = "京公网安备11010802046540号";
 const publicSecurityRecordUrl = "http://www.beian.gov.cn/portal/registerSystemInfo?recordcode=11010802046540";
+const icpRecordIconUrl = "https://gw.alicdn.com/tfs/TB1GxwdSXXXXXa.aXXXXXXXXXXX-65-70.gif";
+const publicSecurityRecordIconUrl = "https://img.alicdn.com/tfs/TB1..50QpXXXXX7XpXXXXXXXXXX-40-40.png";
 const pageItems = [
   { key: "overview", label: "运营总览" },
   { key: "operations", label: "运营结构" },
@@ -1091,24 +1093,28 @@ function ComplianceFooter() {
           href={icpRecordUrl}
           target="_blank"
           rel="noreferrer"
-          className="transition hover:text-cyan-100"
+          className="inline-flex items-center gap-2 transition hover:text-cyan-100"
           aria-label={`工信部备案 ${icpRecord}`}
         >
+          <img src={icpRecordIconUrl} alt="" loading="lazy" className="h-4 w-4 object-contain" aria-hidden="true" />
           {icpRecord}
         </a>
         <a
           href={publicSecurityRecordUrl}
           target="_blank"
           rel="noreferrer"
-          className="transition hover:text-cyan-100"
+          className="inline-flex items-center gap-2 transition hover:text-cyan-100"
           aria-label={`公安联网备案 ${publicSecurityRecord}`}
         >
+          <img
+            src={publicSecurityRecordIconUrl}
+            alt="公安联网备案图标"
+            loading="lazy"
+            className="h-4 w-4 object-contain"
+          />
           {publicSecurityRecord}
         </a>
       </div>
-      <p className="mt-2 text-[11px] text-slate-500">
-        本站已按要求展示备案信息，请确保域名、主体信息与备案登记内容一致后再正式对外发布。
-      </p>
     </footer>
   );
 }

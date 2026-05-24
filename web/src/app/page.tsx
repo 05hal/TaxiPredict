@@ -75,6 +75,39 @@ interface XgboostTopRegion {
   points: XgboostPredictionPoint[];
 }
 
+interface StidModelData {
+  available: boolean;
+  metrics: MetricItem[];
+  summary: {
+    ordersCovered: number;
+    meanTrue: string;
+    wape: string;
+    bestName: string;
+  };
+  refineRows: Array<{
+    name: string;
+    ordersCovered: number;
+    meanTrue: number;
+    mae: number;
+    rmse: number;
+    mape: number;
+    r2: number;
+    wape: number;
+  }>;
+  sweepRanking: RankedPoint[];
+  trainingLoss: {
+    labels: string[];
+    train: number[];
+    validation: number[];
+  };
+  actualVsPredicted: {
+    labels: string[];
+    actual: number[];
+    predicted: number[];
+  };
+  topRegionErrors: RankedPoint[];
+}
+
 interface MonthData {
   key: "may14" | "jun14";
   label: string;
@@ -174,6 +207,7 @@ interface DashboardData {
     };
     regions: XgboostTopRegion[];
   };
+  stidModel: StidModelData;
   assets: {
     preprocess: Record<string, string>;
     models: Array<{ title: string; src: string }>;
@@ -382,12 +416,16 @@ function LineChartCard({
   labels,
   primary,
   secondary,
+  primaryLabel = "真实",
+  secondaryLabel = "预测",
 }: {
   title: string;
   subtitle: string;
   labels: string[];
   primary: number[];
   secondary?: number[];
+  primaryLabel?: string;
+  secondaryLabel?: string;
 }) {
   const allValues = [...primary, ...(secondary ?? [])];
   const maxValue = Math.max(...allValues, 1);
@@ -412,8 +450,8 @@ function LineChartCard({
         </div>
         {secondary ? (
           <div className="flex gap-2 text-xs">
-            <span className="rounded-full bg-cyan-300/15 px-3 py-1 text-cyan-100">真实</span>
-            <span className="rounded-full bg-amber-300/15 px-3 py-1 text-amber-100">预测</span>
+            <span className="rounded-full bg-cyan-300/15 px-3 py-1 text-cyan-100">{primaryLabel}</span>
+            <span className="rounded-full bg-amber-300/15 px-3 py-1 text-amber-100">{secondaryLabel}</span>
           </div>
         ) : null}
       </div>
@@ -532,6 +570,69 @@ function XgboostTopRegionPanel({
           <div className="max-h-[480px] overflow-y-auto pr-2 [scrollbar-gutter:stable]">
             <RankedDataList data={rankedRegions} activeLabel={selectedRegion.region} onSelect={onChange} />
           </div>
+        </div>
+      </div>
+    </GlassCard>
+  );
+}
+
+function StidModelPanel({ data }: { data: StidModelData }) {
+  if (!data.available) return null;
+
+  return (
+    <GlassCard className="mb-5">
+      <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-sm text-slate-300">新增时空图模型</p>
+          <h3 className="mt-1 text-2xl font-black text-white">STID 训练预测表现</h3>
+          <p className="mt-2 text-sm text-slate-400">
+            覆盖 {formatNumber(data.summary.ordersCovered)} 单，平均真实需求 {data.summary.meanTrue}，WAPE {data.summary.wape}%。
+          </p>
+        </div>
+        <Tag color="purple" className="rounded-full">
+          R² {data.metrics.find((item) => item.label === "STID R²")?.value ?? "--"}
+        </Tag>
+      </div>
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {data.metrics.map((metric) => (
+          <MetricCard key={metric.label} label={metric.label} value={metric.value} caption={metric.change} />
+        ))}
+      </div>
+      <div className="mb-5 grid gap-5 lg:grid-cols-[1.1fr_0.9fr]">
+        <LineChartCard
+          title="STID 真实值与预测值"
+          subtitle="测试集按时段聚合"
+          labels={data.actualVsPredicted.labels}
+          primary={data.actualVsPredicted.actual}
+          secondary={data.actualVsPredicted.predicted}
+        />
+        <LineChartCard
+          title="训练损失收敛"
+          subtitle="训练集 / 验证集"
+          labels={data.trainingLoss.labels}
+          primary={data.trainingLoss.train}
+          secondary={data.trainingLoss.validation}
+          primaryLabel="训练"
+          secondaryLabel="验证"
+        />
+      </div>
+      <div className="grid gap-5 lg:grid-cols-[0.95fr_1.05fr]">
+        <div>
+          <div className="mb-4">
+            <p className="text-sm text-slate-300">参数组合表现</p>
+            <h4 className="mt-1 text-xl font-black text-white">配置得分排行</h4>
+          </div>
+          <RankedDataList data={data.sweepRanking} />
+        </div>
+        <div>
+          <div className="mb-4 flex items-end justify-between gap-3">
+            <div>
+              <p className="text-sm text-slate-300">空间网格误差</p>
+              <h4 className="mt-1 text-xl font-black text-white">高误差区域</h4>
+            </div>
+            <span className="text-xs text-cyan-100/70">{data.summary.bestName}</span>
+          </div>
+          <RankedDataList data={data.topRegionErrors} />
         </div>
       </div>
     </GlassCard>
@@ -1181,6 +1282,7 @@ export default function Home() {
                 activeRegion={activeXgboostRegion}
                 onChange={setActiveXgboostRegion}
               />
+              <StidModelPanel data={dashboardData.stidModel} />
               <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {dashboardData.predictionMetrics.map((metric) => (
                   <MetricCard key={metric.label} label={metric.label} value={metric.value} caption={metric.change} />

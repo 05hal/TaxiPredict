@@ -58,6 +58,20 @@ function readSingleRowCsv(filePath) {
   return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']));
 }
 
+function readCsvRecords(filePath) {
+  if (!fs.existsSync(filePath)) return [];
+
+  const [headerLine, ...lines] = fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/);
+  const headers = parseCsvLine(headerLine);
+
+  return lines
+    .filter((line) => line.trim())
+    .map((line) => {
+      const values = parseCsvLine(line);
+      return Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']));
+    });
+}
+
 function readBaseCounts(filePath) {
   const [, ...rows] = fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/);
 
@@ -422,6 +436,136 @@ function readXgboostTopRegionPredictions(filePath) {
   };
 }
 
+function readStidModelData(modelRoot) {
+  const metricsPath = path.join(modelRoot, 'stid_best_0.02_top30/metrics.json');
+  const refineSummaryPath = path.join(modelRoot, 'stid_refine_summary.csv');
+  const sweepSummaryPath = path.join(modelRoot, 'sweep_summary_with_normalized.csv');
+  const trainingHistoryPath = path.join(modelRoot, 'stid_best_0.02_top30/training_history.csv');
+  const predictionsPath = path.join(modelRoot, 'stid_best_0.02_top30/test_predictions.csv');
+
+  if (!fs.existsSync(metricsPath)) {
+    return {
+      available: false,
+      metrics: [],
+      summary: { ordersCovered: 0, meanTrue: '0.00', wape: '0.00', bestName: '' },
+      refineRows: [],
+      sweepRanking: [],
+      trainingLoss: { labels: [], train: [], validation: [] },
+      actualVsPredicted: { labels: [], actual: [], predicted: [] },
+      topRegionErrors: [],
+    };
+  }
+
+  const metrics = JSON.parse(fs.readFileSync(metricsPath, 'utf8'));
+  const refineRows = readCsvRecords(refineSummaryPath)
+    .map((row) => ({
+      name: row.name,
+      ordersCovered: Math.round(Number(row.orders_covered)),
+      meanTrue: round(Number(row.mean_true), 2),
+      mae: round(Number(row.mae), 2),
+      rmse: round(Number(row.rmse), 2),
+      mape: round(Number(row.mape_percent), 2),
+      r2: round(Number(row.r2), 4),
+      wape: round(Number(row.wape_percent), 2),
+    }))
+    .sort((left, right) => right.r2 - left.r2);
+  const bestRefine = refineRows[0];
+
+  const sweepRanking = readCsvRecords(sweepSummaryPath)
+    .map((row) => ({
+      label: row.name.replace(/grid/g, '网格 ').replace(/_/g, ' '),
+      value: `R² ${round(Number(row.r2), 3)} / WAPE ${round(Number(row.wape_percent), 2)}%`,
+      score: Math.round(Math.max(0, Math.min(Number(row.r2), 1)) * 100),
+    }))
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 6);
+
+  const trainingRows = sampleSeries(
+    readCsvRecords(trainingHistoryPath).map((row) => ({
+      label: `E${row.epoch}`,
+      train: round(Number(row.train_loss), 4),
+      validation: round(Number(row.val_loss), 4),
+    })),
+    12,
+  );
+
+  const timeBuckets = new Map();
+  const regionBuckets = new Map();
+  for (const row of readCsvRecords(predictionsPath)) {
+    const time = row.time_bin;
+    const region = row.region_id;
+    const actual = Number(row.y_true);
+    const predicted = Number(row.y_pred);
+    if (!time || !region || !Number.isFinite(actual) || !Number.isFinite(predicted)) continue;
+
+    const timeBucket = timeBuckets.get(time) ?? { actual: 0, predicted: 0 };
+    timeBucket.actual += actual;
+    timeBucket.predicted += predicted;
+    timeBuckets.set(time, timeBucket);
+
+    const regionBucket = regionBuckets.get(region) ?? { actual: 0, predicted: 0, errors: [] };
+    regionBucket.actual += actual;
+    regionBucket.predicted += predicted;
+    regionBucket.errors.push(predicted - actual);
+    regionBuckets.set(region, regionBucket);
+  }
+
+  const predictionSeries = sampleSeries(
+    [...timeBuckets.entries()]
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([time, value]) => ({
+        label: `${time.slice(5, 10)} ${time.slice(11, 13)}时`,
+        actual: Math.round(value.actual),
+        predicted: Math.round(value.predicted),
+      })),
+    14,
+  );
+  const maxRegionError = Math.max(
+    ...[...regionBuckets.values()].map((bucket) => mean(bucket.errors.map((error) => Math.abs(error)))),
+    1,
+  );
+  const topRegionErrors = [...regionBuckets.entries()]
+    .map(([region, bucket]) => {
+      const mae = mean(bucket.errors.map((error) => Math.abs(error)));
+      return {
+        label: region,
+        value: `MAE ${round(mae, 2)} / 真实 ${Math.round(bucket.actual)}`,
+        score: Math.round((mae / maxRegionError) * 100),
+      };
+    })
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 8);
+
+  return {
+    available: true,
+    metrics: [
+      { label: 'STID MAE', value: Number(metrics.mae).toFixed(2), change: '时空图模型误差', tone: 'teal' },
+      { label: 'STID RMSE', value: Number(metrics.rmse).toFixed(2), change: '测试集预测', tone: 'violet' },
+      { label: 'STID R²', value: Number(metrics.r2).toFixed(4), change: '拟合优度', tone: 'amber' },
+      { label: 'STID MAPE', value: `${Number(metrics.mape_percent).toFixed(2)}%`, change: '相对误差', tone: 'sky' },
+    ],
+    summary: {
+      ordersCovered: bestRefine?.ordersCovered ?? 0,
+      meanTrue: bestRefine?.meanTrue.toFixed(2) ?? '0.00',
+      wape: bestRefine?.wape.toFixed(2) ?? '0.00',
+      bestName: bestRefine?.name ?? '',
+    },
+    refineRows,
+    sweepRanking,
+    trainingLoss: {
+      labels: trainingRows.map((row) => row.label),
+      train: trainingRows.map((row) => row.train),
+      validation: trainingRows.map((row) => row.validation),
+    },
+    actualVsPredicted: {
+      labels: predictionSeries.map((row) => row.label),
+      actual: predictionSeries.map((row) => row.actual),
+      predicted: predictionSeries.map((row) => row.predicted),
+    },
+    topRegionErrors,
+  };
+}
+
 async function aggregatePredictionCsv(filePath) {
   const stream = fs.createReadStream(filePath);
   const reader = readline.createInterface({ input: stream, crlfDelay: Infinity });
@@ -688,6 +832,7 @@ async function main() {
   const weatherAggregates = buildWeatherAggregates(path.join(projectRoot, 'new/LCD_USW00094728_2014.csv'), combinedHourlyDemandMap);
   const predictionAggregates = buildPredictionAggregates(combinedHourlyDemandMap);
   const xgboostTopRegions = readXgboostTopRegionPredictions(path.join(projectRoot, 'new/top_regions_actual_vs_pred_simple.csv'));
+  const stidModel = readStidModelData(path.join(projectRoot, 'new_model'));
   const featureInsights = readFeatureInsights(path.join(projectRoot, 'new/feature_analysis_report.md'));
   const maxFeatureScore = Math.max(...featureInsights.map((item) => item.importanceScore), 1);
 
@@ -751,6 +896,7 @@ async function main() {
       { label: 'Top10 区域样本', value: String(xgboostTopRegions.summary.sampleCount), change: '逐小时预测记录', tone: 'sky' },
     ],
     xgboostTopRegions,
+    stidModel,
     dataSources: [
       {
         name: '月度摘要与基础指标',

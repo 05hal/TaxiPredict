@@ -97,12 +97,40 @@ const pageItems = [
   { key: "models", label: "模型结果" },
 ] as const;
 
+const featureDisplayNames: Record<string, string> = {
+  day_cos: "周内周期余弦",
+  day_sin: "周内周期正弦",
+  is_evening_peak: "晚高峰标记",
+  is_morning_peak: "早高峰标记",
+  is_peak: "高峰时段标记",
+  is_precip: "降水标记",
+  is_rain: "雨天标记",
+  longitude: "经度位置",
+  precip: "降水量",
+  precip_level: "降水等级",
+  precip_rolling_3h: "近 3 小时降水",
+  rhum: "相对湿度",
+  temp_change_1h: "短时温度变化",
+  time_cat: "半小时出行时段",
+  time_cos: "日内周期余弦",
+  time_num: "日内时间进度",
+  time_sin: "日内周期强度",
+  vis: "能见度",
+  weather_severity: "天气影响强度",
+  weather_severity_rolling_3h: "近 3 小时天气强度",
+  weekend: "周末标记",
+};
+
 function formatNumber(value: number) {
   return numberFormatter.format(value);
 }
 
 function getPeakLabel(hour: number) {
   return `${String(hour).padStart(2, "0")}:00 - ${String((hour + 1) % 24).padStart(2, "0")}:00`;
+}
+
+function getFeatureDisplayName(feature: string) {
+  return featureDisplayNames[feature] ?? feature.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
 }
 
 function SectionTitle({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
@@ -275,6 +303,7 @@ function BaseDistributionPanel({
 
 function FeatureInsightsPanel({ data }: { data: FeatureInsight[] }) {
   const maxScore = Math.max(...data.map((item) => item.importanceScore));
+  const strongestFeature = data[0];
 
   return (
     <GlassCard>
@@ -292,8 +321,9 @@ function FeatureInsightsPanel({ data }: { data: FeatureInsight[] }) {
           <div className="grid aspect-square place-items-center rounded-full border border-cyan-300/20 bg-[radial-gradient(circle,rgba(34,211,238,0.18),transparent_58%)]">
             <div className="text-center">
               <p className="text-xs uppercase tracking-[0.35em] text-cyan-200">Strongest</p>
-              <p className="mt-3 font-mono text-3xl font-black text-white">{data[0]?.feature}</p>
-              <p className="mt-2 text-sm text-slate-300">{data[0]?.importanceScore.toFixed(3)} 影响强度</p>
+              <p className="mt-3 text-3xl font-black text-white">{strongestFeature ? getFeatureDisplayName(strongestFeature.feature) : "--"}</p>
+              <p className="mt-2 font-mono text-xs text-cyan-100/80">{strongestFeature?.feature}</p>
+              <p className="mt-2 text-sm text-slate-300">{strongestFeature?.importanceScore.toFixed(3)} 影响强度</p>
             </div>
           </div>
         </div>
@@ -305,9 +335,10 @@ function FeatureInsightsPanel({ data }: { data: FeatureInsight[] }) {
               <div key={item.feature} className="rounded-3xl border border-white/10 bg-white/[0.05] p-4">
                 <div className="mb-3 flex items-center justify-between gap-3">
                   <div>
-                    <p className="font-mono text-sm font-black text-cyan-100">{item.feature}</p>
+                    <p className="text-sm font-black text-cyan-100">{getFeatureDisplayName(item.feature)}</p>
                     <p className="text-xs text-slate-400">
-                      {item.featureType} · Pearson {item.pearsonCorr.toFixed(3)} · Spearman {item.spearmanCorr.toFixed(3)}
+                      <span className="font-mono">{item.feature}</span> · {item.featureType} · Pearson {item.pearsonCorr.toFixed(3)} · Spearman{" "}
+                      {item.spearmanCorr.toFixed(3)}
                     </p>
                   </div>
                   <span className="rounded-full bg-cyan-300/15 px-3 py-1 text-xs font-bold text-cyan-100">

@@ -188,6 +188,56 @@ def build_dense_features(
         # log1p 目标
         out["y_log1p"] = np.log1p(out["pickups"].astype(float))
 
+        # ── 追加：报告中的高级特征 ──
+
+        # weather_severity: 降水/低能见度/强风加权综合 (0~1)
+        sev = 0.0
+        if "precip_level" in out.columns:
+            sev += out["precip_level"].astype(float) / 4.0
+        if "low_vis" in out.columns:
+            sev += out["low_vis"].astype(float)
+        if "high_wind" in out.columns:
+            sev += out["high_wind"].astype(float)
+        out["weather_severity"] = (sev / 3.0).clip(0, 1)
+
+        # temp_change_1h: 30 分钟粒度下 shift(2)=1 小时
+        if "temp" in out.columns:
+            out["temp_change_1h"] = out.groupby("geohash")["temp"].diff(2)
+
+        # 分位数分箱（常量列回退到中位数分箱=全 0）
+        for src_col, out_col in [("vis", "vis_level"), ("wspd", "wind_level")]:
+            if src_col in out.columns:
+                try:
+                    if out[src_col].nunique() >= 4:
+                        out[out_col] = (
+                            pd.qcut(out[src_col], q=4, labels=False, duplicates="drop")
+                            .astype(float).fillna(0)
+                        )
+                    else:
+                        out[out_col] = pd.cut(out[src_col], bins=4, labels=False).astype(float).fillna(0)
+                except Exception:
+                    out[out_col] = 0
+                out[out_col] = pd.to_numeric(out[out_col], errors="coerce").fillna(0).astype(int)
+
+        # geo_prefix: geohash 前 5 位
+        if "geohash" in out.columns:
+            out["geo_prefix"] = out["geohash"].astype(str).str[:5]
+
+        # 交互特征
+        i_peak = pd.to_numeric(out.get("is_peak", 0), errors="coerce").fillna(0)
+        i_weekend = pd.to_numeric(out.get("weekend", 0), errors="coerce").fillna(0)
+        i_holiday = pd.to_numeric(out.get("is_holiday", 0), errors="coerce").fillna(0)
+        i_precip = pd.to_numeric(out.get("is_precip", pd.Series(0, index=out.index)), errors="coerce").fillna(0)
+        temp_norm = pd.to_numeric(out.get("temp", 25), errors="coerce").fillna(25) / 50.0
+        rhum_norm = pd.to_numeric(out.get("rhum", out.get("humidity", 50)), errors="coerce").fillna(50) / 100.0
+        wspd_val = pd.to_numeric(out.get("wspd", out.get("wind_speed", 5)), errors="coerce").fillna(5) / 20.0
+
+        out["peak_weekend"] = (i_peak * i_weekend).astype(int)
+        out["holiday_peak"] = (i_holiday * i_peak).astype(int)
+        out["rain_peak"] = (i_precip * i_peak).astype(int)
+        out["temp_rhum"] = (temp_norm * rhum_norm).astype(float)
+        out["temp_wspd"] = (temp_norm * wspd_val).astype(float)
+
     # ── 6. 删除常量列 ──
     if feature_cfg.get("drop_constant", True):
         out = drop_constant_columns(out)

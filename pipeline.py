@@ -317,6 +317,26 @@ def run_train(cfg: dict, model_names: list[str], force: bool) -> int:
                 n_plots = plot_pred_vs_actual(pred_df, model_dir, model_name, top_n=top_n)
                 print(f"  对比图: {n_plots} 张")
 
+            # 特征重要性 CSV
+            if hasattr(model, "_model") and model._model is not None and hasattr(model._model, "feature_importances_"):
+                imp = model._model.feature_importances_
+                imp_df = pd.DataFrame({"feature": model._feature_cols, "importance": imp})
+                imp_df = imp_df.sort_values("importance", ascending=False).reset_index(drop=True)
+                imp_df.to_csv(model_dir / "feature_importance.csv", index=False, encoding="utf-8-sig")
+                print(f"  feature_importance: {len(imp_df)} 个特征")
+
+            # 特征排序 CSV
+            ranking_df = getattr(model, "_ranking_df", None)
+            if ranking_df is not None and not ranking_df.empty:
+                ranking_df.to_csv(model_dir / "feature_ranking.csv", index=False, encoding="utf-8-sig")
+                print(f"  feature_ranking: {len(ranking_df)} 个特征")
+
+            # 已选特征清单
+            if model._feature_cols:
+                pd.DataFrame({"feature": model._feature_cols}).to_csv(
+                    model_dir / "selected_features.csv", index=False, encoding="utf-8-sig"
+                )
+
             # SHAP（仅树模型）
             if out_cfg.get("shap", False) and hasattr(model, "_model") and model._model is not None:
                 from taxipredict.outputs.shap_analysis import run_shap

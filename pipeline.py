@@ -343,8 +343,6 @@ def run_train(cfg: dict, model_names: list[str], force: bool) -> int:
                 print(f"  开始 SHAP 分析（{model.__class__.__name__}）...")
                 proc_test = getattr(model, "_processed_test", test_df)
                 X_test_shap = proc_test[model._feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
-                # 全表强制数值化（处理 numpy array 嵌套等异常）
-                X_test_shap = X_test_shap.apply(pd.to_numeric, errors="coerce").fillna(0)
                 run_shap(model._model, X_test_shap, model_dir)
 
             # Markdown 报告

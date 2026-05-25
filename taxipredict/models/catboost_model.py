@@ -49,9 +49,27 @@ class CatBoostModel(BaseModel):
             target_col=actual_target,
         )
 
-        X_train = _train[self._feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
+        _cat_cols_extra = ["geo_prefix", "time_cat", "day_cat"]
+        _cat_cols = []
+        for col in _cat_cols_extra:
+            if col in _train.columns and col not in self._feature_cols:
+                self._feature_cols.append(col)
+                _cat_cols.append(col)
+            elif col in _train.columns:
+                _cat_cols.append(col)
+
+        X_train = _train[self._feature_cols].copy()
+        X_train[_cat_cols] = X_train[_cat_cols].astype(str).fillna("") if _cat_cols else X_train[_cat_cols]
+        for col in self._feature_cols:
+            if col not in _cat_cols:
+                X_train[col] = pd.to_numeric(X_train[col], errors="coerce").fillna(0)
         y_train = _train[actual_target]
-        X_test = _test[self._feature_cols].fillna(0).replace([np.inf, -np.inf], 0)
+
+        X_test = _test[self._feature_cols].copy()
+        X_test[_cat_cols] = X_test[_cat_cols].astype(str).fillna("") if _cat_cols else X_test[_cat_cols]
+        for col in self._feature_cols:
+            if col not in _cat_cols:
+                X_test[col] = pd.to_numeric(X_test[col], errors="coerce").fillna(0)
         y_test = _test[actual_target]
 
         device = cb_cfg.get("device", "CPU").upper()
@@ -68,7 +86,14 @@ class CatBoostModel(BaseModel):
             verbose=0,
         )
 
-        self._model.fit(X_train, y_train, eval_set=(X_test, y_test), use_best_model=True, verbose=False)
+        if _cat_cols:
+            cat_features_indices = [list(X_train.columns).index(c) for c in _cat_cols]
+        else:
+            cat_features_indices = None
+
+        self._model.fit(X_train, y_train, eval_set=(X_test, y_test),
+                        cat_features=cat_features_indices,
+                        use_best_model=True, verbose=False)
 
         train_pred = self.decode_target(np.maximum(self._model.predict(X_train), 0), actual_target)
         test_pred = self.decode_target(np.maximum(self._model.predict(X_test), 0), actual_target)

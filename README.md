@@ -44,10 +44,12 @@ python pipeline.py --config config/my_config.yaml
 |------|:------:|:------:|:----:|
 | XGBoost test_MAE | **0.4028** | **0.3704** | ▼ 8.0% |
 | XGBoost test_R² | 0.2721 | 0.2721 | — |
-| CatBoost test_MAE | **0.4001** | **0.3699** | ▼ 7.5% |
-| LightGBM test_MAE | **0.4015** | **0.3701** | ▼ 7.8% |
+| CatBoost test_MAE | **0.4001** | **0.3647** | ▼ 8.8% |
+| CatBoost test_R² | 0.2780 | 0.2814 | ▲ |
+| LightGBM test_MAE | **0.4015** | **0.3700** | ▼ 7.8% |
+| LightGBM test_R² | 0.2761 | 0.2724 | — |
 
-MAE 降低主要来自：**log1p 目标变换 + 新增 10 个特征 + 更优参数**
+MAE 降低主要来自：**log1p 目标变换 + 新增 10 个特征 + 类别编码 + 更优参数**
 
 ## 项目结构
 

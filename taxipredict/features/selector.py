@@ -97,8 +97,8 @@ def select_features(
     target_col: str = "pickups",
     group_col: str = "geohash",
     exclude_cols: set[str] | None = None,
-) -> tuple[list[str], pd.DataFrame, pd.DataFrame]:
-    """执行特征选择，返回 (selected_feature_cols, train_df, test_df)。
+) -> tuple[list[str], pd.DataFrame, pd.DataFrame, pd.DataFrame | None]:
+    """执行特征选择，返回 (selected_feature_cols, train_df, test_df, ranking_df)。
 
     模式：
     - raw_all：使用全部数值特征
@@ -110,7 +110,7 @@ def select_features(
 
     if exclude_cols is None:
         exclude_cols = {
-            target_col, "datetime", group_col, "latitude", "longitude",
+            target_col, "pickups", "datetime", group_col, "latitude", "longitude",
             "time_cat", "day_cat", "split", "is_test", "source_file",
             "year", "month", "day", "hour",
             "y_log1p", "_row_id", "_src",
@@ -129,7 +129,7 @@ def select_features(
     ]
 
     if mode == "raw_all":
-        return candidates, _train, _test
+        return candidates, _train, _test, None
 
     # top_k / ts_topk：按训练集相关性排序
     y = _train[target_col]
@@ -143,6 +143,12 @@ def select_features(
     scores.sort(key=lambda x: -x[1])
     selected = [s[0] for s in scores[:k]]
 
+    # 构建 ranking_df
+    ranking_df = pd.DataFrame(scores, columns=["feature", "importance_score"])
+    ranking_df["pearson_corr"] = [float(_safe_corr(_train[col], y)) for col in ranking_df["feature"]]
+    ranking_df["spearman_corr"] = [float(_safe_corr(_train[col].rank(), y.rank())) for col in ranking_df["feature"]]
+    ranking_df = ranking_df.reset_index(drop=True)
+
     # ts_topk 模式附加信息打印
     if mode == "ts_topk":
         ts_names = set(_get_ts_feature_names())
@@ -151,4 +157,4 @@ def select_features(
         print(f"  特征选择 ts_topk: {len(selected)} 个特征 "
               f"(含 {len(ts_selected)} 个时序特征, {len(raw_selected)} 个其他)")
 
-    return selected, _train, _test
+    return selected, _train, _test, ranking_df

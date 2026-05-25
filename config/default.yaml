@@ -31,11 +31,13 @@ models:
 
   xgboost:
     enabled: true
-    feature_mode: raw_all          # raw_all | top_k | ts_topk
-    feature_k: 20                  # top_k / ts_topk 用
-    n_estimators: 500
+    feature_mode: raw_all
+    feature_k: 20
+    log1p: true
+    device: cuda                   # cpu 或 cuda（需 CUDA 版 xgboost）
+    n_estimators: 800
     max_depth: 6
-    learning_rate: 0.05
+    learning_rate: 0.03
     subsample: 0.8
     colsample_bytree: 0.8
     early_stopping_rounds: 20
@@ -44,6 +46,8 @@ models:
     enabled: true
     feature_mode: raw_all
     feature_k: 20
+    log1p: true
+    device: GPU                    # CPU 或 GPU
     iterations: 800
     learning_rate: 0.05
     depth: 6
@@ -54,11 +58,15 @@ models:
     enabled: true
     feature_mode: raw_all
     feature_k: 20
+    log1p: true
+    device: gpu                    # cpu 或 gpu（需 GPU 版 lightgbm）
     n_estimators: 500
     num_leaves: 31
     learning_rate: 0.05
     subsample: 0.8
     colsample_bytree: 0.8
+    reg_alpha: 0.01
+    reg_lambda: 0.01
     early_stopping_rounds: 20
 
   gru:
@@ -91,7 +99,7 @@ models:
     epochs: 40
     batch_size: 32
     patience: 12
-    device: auto                   # auto | cpu | cuda
+    device: cuda                   # auto | cpu | cuda
 
 # ── 输出控制 ──────────────────────────────────────────────────────────────
 output:

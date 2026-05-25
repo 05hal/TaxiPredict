@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pandas as pd
@@ -26,6 +27,7 @@ class BaseModel(ABC):
         self._feature_cols: list[str] = []
         self._pred_df = None
         self._processed_test = None
+        self._ranking_df = None
 
     @abstractmethod
     def train(
@@ -54,6 +56,12 @@ class BaseModel(ABC):
     def load(cls, path: str | Path) -> "BaseModel":
         """从磁盘加载模型。"""
         ...
+
+    def decode_target(self, y_pred: np.ndarray, target_col: str) -> np.ndarray:
+        """若目标列使用 log1p 变换，解码回原始量纲。"""
+        if target_col == "y_log1p":
+            return np.maximum(np.expm1(y_pred), 0)
+        return y_pred
 
     def _select_features(
         self, df: pd.DataFrame, target_col: str = "pickups"

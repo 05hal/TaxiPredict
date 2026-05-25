@@ -33,3 +33,21 @@ python models\\xgboostEMA.py ^
 
 目前效果不太好
 
+## 模型环境（conda `taxi-models`）
+
+```bat
+REM 首次安装（在 new 目录）
+setup_models_env.bat
+
+REM 若 GRU / LightGCN 报 torch._prims_common 或 tensorflow 导入错误（残缺安装）
+repair_deep_models.bat
+```
+
+| 模型 | 依赖 | 运行示例 |
+|------|------|----------|
+| LightGBM / CatBoost | `requirements-models.txt` | `python models\LightGBM.py --inputs may14\xgb_dense_features.csv jun14\xgb_dense_features.csv --feature-mode raw_all` |
+| GRU | TensorFlow 2.16 | `python models\GRU.py --inputs may14\xgb_dense_features.csv jun14\xgb_dense_features.csv --feature-mode raw_all` |
+| LightGCN | PyTorch 2.4.1 CPU | `python models\LightGCN.py --inputs may14\xgb_dense_features.csv jun14\xgb_dense_features.csv --feature-mode raw_all` |
+
+验证深度学习依赖：`python verify_deep_models.py`
+

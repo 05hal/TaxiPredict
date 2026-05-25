@@ -1,4 +1,19 @@
+# 大型/本地数据（不入库）
 may14/taxi_prediction_hourly_with_weather.csv
 jun14/taxi_prediction_hourly_with_weather.csv
+may14/xgb_dense_features.csv
+jun14/xgb_dense_features.csv
 result_*/
 *.pkl
+
+# 训练与报告产物
+catboost_info/
+feature_analysis_report.csv
+*.png
+
+# Python 缓存
+__pycache__/
+*.py[cod]
+
+# 本地备份目录（勿提交）
+../backup_local_results/

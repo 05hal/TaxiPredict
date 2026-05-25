@@ -1,486 +1,199 @@
-import pandas as pd
-import numpy as np
+# LightGBM 分 geohash 地区、区域×小时 pickups 预测
+# 数据管道与 xgboostEMA 一致：去泄漏、区域×小时聚合、top-N 地区输出
+
+from __future__ import annotations
+
+import argparse
+import warnings
+from pathlib import Path
+
+import joblib
 import lightgbm as lgb
-import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
 
-from sklearn.preprocessing import LabelEncoder
-from sklearn.metrics import (
-    mean_squared_error,
-    mean_absolute_error,
-    r2_score
+from taxi_pipeline import (
+    REGION_GROUP_COL,
+    add_shared_cli_arguments,
+    build_prediction_dataframe,
+    evaluate_predictions,
+    make_result_dir,
+    prepare_hourly_dataset,
+    save_standard_outputs,
+    try_run_shap,
 )
 
-# ==========================================
-# 1. 读取数据
-# ==========================================
+warnings.filterwarnings("ignore")
 
-print("读取数据...")
+MODEL_NAME = "LightGBM"
 
-may_df = pd.read_csv(
-    "../may14/taxi_prediction_hourly_with_weather.csv"
-)
 
-jun_df = pd.read_csv(
-    "../jun14/taxi_prediction_hourly_with_weather.csv"
-)
+def train_lightgbm(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    selected_features: list[str],
+    target_col: str,
+    num_boost_round: int,
+    learning_rate: float,
+) -> tuple[lgb.Booster, dict, pd.DataFrame]:
+    X_train = train_df[selected_features]
+    y_train = train_df[target_col]
+    X_test = test_df[selected_features]
+    y_test = test_df[target_col]
 
-# ==========================================
-# 2. 划分训练集 / 测试集
-# ==========================================
+    train_data = lgb.Dataset(X_train, label=y_train)
+    test_data = lgb.Dataset(X_test, label=y_test, reference=train_data)
 
-print("划分训练测试集...")
+    params = {
+        "objective": "regression",
+        "metric": "rmse",
+        "boosting_type": "gbdt",
+        "learning_rate": learning_rate,
+        "num_leaves": 31,
+        "max_depth": 8,
+        "min_data_in_leaf": 20,
+        "feature_fraction": 0.85,
+        "bagging_fraction": 0.85,
+        "bagging_freq": 5,
+        "lambda_l1": 0.1,
+        "lambda_l2": 1.0,
+        "verbose": -1,
+    }
 
-# 6月前3周
-jun_train_df = jun_df[
-    jun_df['day'] <= 22
-]
+    print(f"\n开始训练 {MODEL_NAME}...")
+    print(f"训练样本数：{len(X_train)}")
+    print(f"测试样本数：{len(X_test)}")
+    print(f"使用特征数：{len(selected_features)}")
 
-# 训练集
-train_df = pd.concat(
-    [may_df, jun_train_df],
-    ignore_index=True
-)
+    model = lgb.train(
+        params,
+        train_data,
+        num_boost_round=num_boost_round,
+        valid_sets=[test_data],
+        callbacks=[
+            lgb.early_stopping(stopping_rounds=100),
+            lgb.log_evaluation(period=50),
+        ],
+    )
 
-# 测试集：6月最后一周
-test_df = jun_df[
-    jun_df['day'] >= 23
-]
+    train_pred = model.predict(X_train, num_iteration=model.best_iteration)
+    test_pred = model.predict(X_test, num_iteration=model.best_iteration)
+    test_pred = np.maximum(test_pred, 0)
 
-target_col = 'pickups'
+    metrics = {}
+    metrics.update(evaluate_predictions(y_train, train_pred, "train"))
+    metrics.update(evaluate_predictions(y_test, test_pred, "test"))
 
-# ==========================================
-# 3. 构建高级特征
-# ==========================================
+    pred_df = build_prediction_dataframe(test_df, test_pred, target_col)
+    return model, metrics, pred_df
 
-print("构建高级特征...")
 
-# ---------- 排序 ----------
-sort_cols = [
-    'year',
-    'month',
-    'day'
-]
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="使用 may14 + jun14 数据训练 LightGBM，并预测六月最后一周 pickups。"
+    )
+    add_shared_cli_arguments(parser, result_prefix_default="result_lgb")
+    parser.add_argument(
+        "--num-boost-round",
+        type=int,
+        default=2000,
+        help="LightGBM 迭代轮数，默认 2000。",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=0.03,
+        help="学习率，默认 0.03。",
+    )
+    args = parser.parse_args()
 
-train_df = train_df.sort_values(sort_cols)
-test_df = test_df.sort_values(sort_cols)
+    result_dir = make_result_dir(args.result_prefix)
+    input_paths = [Path(p) for p in args.inputs]
 
-# ==========================================
-# 邻近区域特征
-# ==========================================
+    print(f"结果目录：{result_dir}")
 
-train_df['geo_prefix'] = (
-    train_df['geohash']
-    .astype(str)
-    .str[:5]
-)
+    print(f"特征模式：{args.feature_mode}")
 
-test_df['geo_prefix'] = (
-    test_df['geohash']
-    .astype(str)
-    .str[:5]
-)
+    df, train_df, test_df, test_start, selected_features, ranking_df = prepare_hourly_dataset(
+        input_paths=input_paths,
+        target_col=args.target,
+        feature_mode=args.feature_mode,
+        top_k=args.k,
+    )
 
-# ==========================================
-# 历史窗口特征
-# ==========================================
+    model, metrics, pred_df = train_lightgbm(
+        train_df=train_df,
+        test_df=test_df,
+        selected_features=selected_features,
+        target_col=args.target,
+        num_boost_round=args.num_boost_round,
+        learning_rate=args.learning_rate,
+    )
 
-windows = [1, 3, 6, 12, 24, 48, 168]
+    print("\n评估结果：")
+    print(f"Train MAE  = {metrics['train_mae']:.6f}")
+    print(f"Train RMSE = {metrics['train_rmse']:.6f}")
+    print(f"Train R2   = {metrics['train_r2']:.6f}")
+    print(f"Test MAE   = {metrics['test_mae']:.6f}")
+    print(f"Test RMSE  = {metrics['test_rmse']:.6f}")
+    print(f"Test R2    = {metrics['test_r2']:.6f}")
 
-for w in windows:
+    importance_df = pd.DataFrame({
+        "feature": selected_features,
+        "importance": model.feature_importance(importance_type="gain"),
+    }).sort_values("importance", ascending=False)
 
-    train_df[f'pickup_prev{w}'] = (
-        train_df
-        .groupby('geohash')[target_col]
-        .transform(
-            lambda x:
-            x.shift(1)
-            .rolling(w)
-            .mean()
+    config = {
+        "model": MODEL_NAME,
+        "input_files": [str(p) for p in input_paths],
+        "target_col": args.target,
+        "result_dir": str(result_dir),
+        "test_start": str(test_start),
+        "num_boost_round": args.num_boost_round,
+        "learning_rate": args.learning_rate,
+        "train_rows": int(len(train_df)),
+        "test_rows": int(len(test_df)),
+        "selected_feature_count": int(len(selected_features)),
+        "prediction_granularity": "hourly_by_geohash",
+        "region_count": int(df[REGION_GROUP_COL].nunique()),
+        "feature_mode": args.feature_mode,
+        "k": args.k,
+        "shap_enabled": bool(args.shap),
+    }
+
+    joblib.dump(model, result_dir / "lgb_model.pkl")
+
+    save_standard_outputs(
+        result_dir=result_dir,
+        df=df,
+        train_df=train_df,
+        test_df=test_df,
+        pred_df=pred_df,
+        metrics=metrics,
+        config=config,
+        selected_features=selected_features,
+        ranking_df=ranking_df,
+        test_start=test_start,
+        model_name=MODEL_NAME,
+        model_filename="lgb_model.pkl",
+        top_regions=args.top_regions,
+        save_full_data=args.save_full_data,
+        importance_df=importance_df,
+        importance_filename="lgb_feature_importance.csv",
+    )
+
+    if args.shap:
+        try_run_shap(
+            model=model,
+            test_df=test_df,
+            selected_features=selected_features,
+            result_dir=result_dir,
+            max_samples=args.shap_max_samples,
         )
-    )
 
-    test_df[f'pickup_prev{w}'] = (
-        test_df
-        .groupby('geohash')[target_col]
-        .transform(
-            lambda x:
-            x.shift(1)
-            .rolling(w)
-            .mean()
-        )
-    )
+    print("\n全部完成。")
+    print(f"所有结果已保存到：{result_dir}")
 
-# ==========================================
-# 区域统计特征
-# ==========================================
 
-geo_mean = (
-    train_df
-    .groupby('geohash')[target_col]
-    .mean()
-)
-
-train_df['geo_mean_pickups'] = (
-    train_df['geohash']
-    .map(geo_mean)
-)
-
-test_df['geo_mean_pickups'] = (
-    test_df['geohash']
-    .map(geo_mean)
-)
-
-# ==========================================
-# 节假日组合特征
-# ==========================================
-
-train_df['holiday_peak'] = (
-    train_df['is_holiday']
-    * train_df['is_peak']
-)
-
-test_df['holiday_peak'] = (
-    test_df['is_holiday']
-    * test_df['is_peak']
-)
-
-# ==========================================
-# 天气组合特征
-# ==========================================
-
-train_df['bad_weather'] = (
-    train_df['is_rain']
-    + train_df['is_snow']
-    + train_df['is_fog']
-)
-
-test_df['bad_weather'] = (
-    test_df['is_rain']
-    + test_df['is_snow']
-    + test_df['is_fog']
-)
-
-# ==========================================
-# 高峰 + 坏天气
-# ==========================================
-
-train_df['peak_bad_weather'] = (
-    train_df['is_peak']
-    * train_df['bad_weather']
-)
-
-test_df['peak_bad_weather'] = (
-    test_df['is_peak']
-    * test_df['bad_weather']
-)
-
-# ==========================================
-# 下雨高峰组合
-# ==========================================
-
-train_df['rain_peak'] = (
-    train_df['is_rain']
-    * train_df['is_peak']
-)
-
-test_df['rain_peak'] = (
-    test_df['is_rain']
-    * test_df['is_peak']
-)
-
-# ==========================================
-# 周末高峰组合
-# ==========================================
-
-train_df['weekend_peak'] = (
-    train_df['weekend']
-    * train_df['is_peak']
-)
-
-test_df['weekend_peak'] = (
-    test_df['weekend']
-    * test_df['is_peak']
-)
-
-# ==========================================
-# 缺失值处理
-# ==========================================
-
-train_df = train_df.fillna(0)
-test_df = test_df.fillna(0)
-
-# ==========================================
-# 4. 特征列
-# ==========================================
-
-feature_cols = [
-    c for c in train_df.columns
-    if c != target_col
-]
-
-X_train = train_df[feature_cols].copy()
-
-# log变换（提升预测效果）
-y_train = np.log1p(
-    train_df[target_col]
-)
-
-X_test = test_df[feature_cols].copy()
-
-y_test = test_df[target_col]
-
-# ==========================================
-# 5. 类别特征编码
-# ==========================================
-
-print("编码类别特征...")
-
-categorical_cols = [
-    'time_cat',
-    'day_cat',
-    'geohash',
-    'geo_prefix'
-]
-
-for col in categorical_cols:
-
-    le = LabelEncoder()
-
-    le.fit(
-        pd.concat([
-            X_train[col],
-            X_test[col]
-        ]).astype(str)
-    )
-
-    X_train[col] = le.transform(
-        X_train[col].astype(str)
-    )
-
-    X_test[col] = le.transform(
-        X_test[col].astype(str)
-    )
-
-# ==========================================
-# 6. LightGBM 数据集
-# ==========================================
-
-train_data = lgb.Dataset(
-    X_train,
-    label=y_train
-)
-
-test_data = lgb.Dataset(
-    X_test,
-    label=np.log1p(y_test),
-    reference=train_data
-)
-
-# ==========================================
-# 7. LightGBM 参数
-# ==========================================
-
-params = {
-
-    'objective': 'regression',
-
-    'metric': 'rmse',
-
-    'boosting_type': 'gbdt',
-
-    'learning_rate': 0.02,
-
-    'num_leaves': 31,
-
-    'max_depth': 8,
-
-    'min_data_in_leaf': 120,
-
-    'feature_fraction': 0.7,
-
-    'bagging_fraction': 0.7,
-
-    'bagging_freq': 5,
-
-    'lambda_l1': 2.0,
-
-    'lambda_l2': 2.0,
-
-    'verbose': -1
-}
-
-# ==========================================
-# 8. 模型训练
-# ==========================================
-
-print("开始训练 LightGBM...")
-
-model = lgb.train(
-
-    params,
-
-    train_data,
-
-    num_boost_round=2000,
-
-    valid_sets=[test_data],
-
-    callbacks=[
-
-        lgb.early_stopping(
-            stopping_rounds=100
-        ),
-
-        lgb.log_evaluation(
-            period=50
-        )
-    ]
-)
-
-# ==========================================
-# 9. 预测
-# ==========================================
-
-print("开始预测...")
-
-y_pred = model.predict(
-    X_test,
-    num_iteration=model.best_iteration
-)
-
-# 反log变换
-y_pred = np.expm1(y_pred)
-
-# ==========================================
-# 10. 模型评估
-# ==========================================
-
-mse = mean_squared_error(
-    y_test,
-    y_pred
-)
-
-rmse = np.sqrt(mse)
-
-mae = mean_absolute_error(
-    y_test,
-    y_pred
-)
-
-r2 = r2_score(
-    y_test,
-    y_pred
-)
-
-print("\n============================")
-print("模型评估结果")
-print("============================")
-
-print("RMSE:", rmse)
-print("MAE :", mae)
-print("R^2 :", r2)
-
-print("============================\n")
-
-# ==========================================
-# 11. 预测结果可视化
-# ==========================================
-
-print("生成预测图...")
-
-plt.figure(figsize=(16, 6))
-
-plot_size = 1000
-
-plt.plot(
-    y_test.values[:plot_size],
-    label='Actual',
-    linewidth=2
-)
-
-plt.plot(
-    y_pred[:plot_size],
-    label='Predicted',
-    linewidth=2
-)
-
-plt.title(
-    'LightGBM: Actual vs Predicted Pickups',
-    fontsize=18,
-    fontweight='bold'
-)
-
-plt.xlabel(
-    'Samples',
-    fontsize=14
-)
-
-plt.ylabel(
-    'Pickups',
-    fontsize=14
-)
-
-plt.legend(
-    fontsize=12
-)
-
-plt.grid(alpha=0.3)
-
-plt.tight_layout()
-
-plt.savefig(
-    "../jun14/lightgbm_actual_vs_pred_last_week.png",
-    dpi=300
-)
-
-plt.show()
-
-# ==========================================
-# 12. 特征重要性
-# ==========================================
-
-print("生成特征重要性图...")
-
-importance = pd.DataFrame({
-
-    'feature': X_train.columns,
-
-    'importance': model.feature_importance()
-
-})
-
-importance = importance.sort_values(
-    by='importance',
-    ascending=False
-).head(20)
-
-plt.figure(figsize=(12, 8))
-
-plt.barh(
-    importance['feature'],
-    importance['importance']
-)
-
-plt.gca().invert_yaxis()
-
-plt.title(
-    'Top 20 Feature Importance',
-    fontsize=18,
-    fontweight='bold'
-)
-
-plt.xlabel(
-    'Importance',
-    fontsize=14
-)
-
-plt.tight_layout()
-
-plt.savefig(
-    "../jun14/lightgbm_feature_importance.png",
-    dpi=300
-)
-
-plt.show()
-
-print("训练完成！")
+if __name__ == "__main__":
+    main()

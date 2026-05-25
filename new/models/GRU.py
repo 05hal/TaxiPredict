@@ -1,539 +1,259 @@
-import pandas as pd
+# GRU 分 geohash 地区、区域×小时 pickups 预测
+# 数据管道与 xgboostEMA 一致：去泄漏、区域×小时聚合、top-N 地区输出
+
+from __future__ import annotations
+
+import argparse
+import warnings
+from pathlib import Path
+
+import joblib
 import numpy as np
-import matplotlib.pyplot as plt
-
-from sklearn.preprocessing import (
-    LabelEncoder,
-    StandardScaler
-)
-
-from sklearn.metrics import (
-    mean_squared_error,
-    mean_absolute_error,
-    r2_score
-)
-
+import pandas as pd
+from sklearn.preprocessing import StandardScaler
+from tensorflow.keras.callbacks import EarlyStopping
+from tensorflow.keras.layers import GRU, Dense, Dropout, Input
 from tensorflow.keras.models import Sequential
 
-from tensorflow.keras.layers import (
-    GRU,
-    Dense,
-    Dropout,
-    Input
+from taxi_pipeline import (
+    REGION_GROUP_COL,
+    add_shared_cli_arguments,
+    build_prediction_dataframe,
+    evaluate_predictions,
+    make_result_dir,
+    prepare_hourly_dataset,
+    save_standard_outputs,
 )
 
-from tensorflow.keras.callbacks import (
-    EarlyStopping
-)
+warnings.filterwarnings("ignore")
 
-# ==========================================
-# 1. 读取数据
-# ==========================================
+MODEL_NAME = "GRU"
 
-print("读取数据...")
 
-may_df = pd.read_csv(
-    "../may14/taxi_prediction_hourly_with_weather.csv"
-)
-
-jun_df = pd.read_csv(
-    "../jun14/taxi_prediction_hourly_with_weather.csv"
-)
-
-# ==========================================
-# 2. 划分训练测试集
-# ==========================================
-
-print("划分训练测试集...")
-
-jun_train_df = jun_df[
-    jun_df['day'] <= 22
-].copy()
-
-train_df = pd.concat(
-    [may_df, jun_train_df],
-    ignore_index=True
-)
-
-test_df = jun_df[
-    jun_df['day'] >= 23
-].copy()
-
-# ==========================================
-# 3. 抽样训练数据（减少内存）
-# ==========================================
-
-print("抽样训练数据...")
-
-train_df = train_df.sample(
-    frac=0.15,
-    random_state=42
-).reset_index(drop=True)
-
-# ==========================================
-# 4. 目标列
-# ==========================================
-
-target_col = 'pickups'
-
-# ==========================================
-# 5. 构建历史 pickup 特征
-# ==========================================
-
-print("构建历史 pickup 特征...")
-
-train_df = train_df.sort_values(
-    by=['geohash', 'day']
-)
-
-test_df = test_df.sort_values(
-    by=['geohash', 'day']
-)
-
-train_df['pickup_lag1'] = (
-    train_df
-    .groupby('geohash')[target_col]
-    .shift(1)
-)
-
-train_df['pickup_lag3'] = (
-    train_df
-    .groupby('geohash')[target_col]
-    .shift(3)
-)
-
-test_df['pickup_lag1'] = (
-    test_df
-    .groupby('geohash')[target_col]
-    .shift(1)
-)
-
-test_df['pickup_lag3'] = (
-    test_df
-    .groupby('geohash')[target_col]
-    .shift(3)
-)
-
-# 缺失值填充
-train_df.fillna(0, inplace=True)
-test_df.fillna(0, inplace=True)
-
-# ==========================================
-# 6. 高级特征工程
-# ==========================================
-
-print("构建高级特征...")
-
-for df in [train_df, test_df]:
-
-    # 高峰+周末
-    df['peak_weekend'] = (
-        df['is_peak'] * df['weekend']
-    )
-
-    # 节假日+高峰
-    df['holiday_peak'] = (
-        df['is_holiday'] * df['is_peak']
-    )
-
-    # 下雨+高峰
-    df['rain_peak'] = (
-        df['is_rain'] * df['is_peak']
-    )
-
-    # 温度湿度组合
-    df['temp_rhum'] = (
-        df['temp'] * df['rhum']
-    )
-
-    # 温度风速组合
-    df['temp_wspd'] = (
-        df['temp'] * df['wspd']
-    )
-
-# ==========================================
-# 7. 编码 geohash
-# ==========================================
-
-print("编码 geohash...")
-
-le = LabelEncoder()
-
-all_geo = pd.concat([
-    train_df['geohash'].astype(str),
-    test_df['geohash'].astype(str)
-])
-
-le.fit(all_geo)
-
-train_df['geohash'] = le.transform(
-    train_df['geohash'].astype(str)
-)
-
-test_df['geohash'] = le.transform(
-    test_df['geohash'].astype(str)
-)
-
-# ==========================================
-# 8. 特征列
-# ==========================================
-
-feature_cols = [
-
-    'year',
-    'month',
-    'day',
-
-    'time_cos',
-    'time_sin',
-
-    'day_cos',
-    'day_sin',
-
-    'weekend',
-
-    'geohash',
-
-    'latitude',
-    'logitude',
-
-    'temp',
-    'rhum',
-    'wspd',
-
-    'is_precip',
-    'is_rain',
-    'is_snow',
-    'is_fog',
-
-    'is_holiday',
-    'is_peak',
-
-    'peak_weekend',
-    'holiday_peak',
-    'rain_peak',
-
-    'temp_rhum',
-    'temp_wspd',
-
-    # 历史特征
-    'pickup_lag1',
-    'pickup_lag3'
-]
-
-# ==========================================
-# 9. 处理异常值
-# ==========================================
-
-print("处理异常值...")
-
-train_df.replace(
-    [np.inf, -np.inf],
-    0,
-    inplace=True
-)
-
-test_df.replace(
-    [np.inf, -np.inf],
-    0,
-    inplace=True
-)
-
-train_df.fillna(0, inplace=True)
-test_df.fillna(0, inplace=True)
-
-# ==========================================
-# 10. 标准化
-# ==========================================
-
-print("标准化数据...")
-
-scaler = StandardScaler()
-
-train_features = scaler.fit_transform(
-    train_df[feature_cols]
-).astype(np.float32)
-
-test_features = scaler.transform(
-    test_df[feature_cols]
-).astype(np.float32)
-
-train_target = train_df[
-    target_col
-].values.astype(np.float32)
-
-test_target = test_df[
-    target_col
-].values.astype(np.float32)
-
-# ==========================================
-# 11. 构建时间窗口
-# ==========================================
-
-print("构建时间序列窗口...")
-
-WINDOW_SIZE = 24
-
-def create_sequences(features, target, window_size):
-
-    X = []
-    y = []
+def create_sequences(
+    features: np.ndarray,
+    target: np.ndarray,
+    datetimes: np.ndarray,
+    window_size: int,
+) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    X, y, dt = [], [], []
 
     for i in range(window_size, len(features)):
+        X.append(features[i - window_size : i])
+        y.append(target[i])
+        dt.append(datetimes[i])
 
-        X.append(
-            features[i-window_size:i]
-        )
+    return np.array(X), np.array(y), np.array(dt)
 
-        y.append(
-            target[i]
-        )
 
-    return np.array(X), np.array(y)
-
-X_train, y_train = create_sequences(
-    train_features,
-    train_target,
-    WINDOW_SIZE
-)
-
-X_test, y_test = create_sequences(
-    test_features,
-    test_target,
-    WINDOW_SIZE
-)
-
-print("X_train shape:", X_train.shape)
-print("X_test shape :", X_test.shape)
-
-# ==========================================
-# 12. 构建 GRU 模型
-# ==========================================
-
-print("构建 GRU 模型...")
-
-model = Sequential([
-
-    Input(
-        shape=(
-            X_train.shape[1],
-            X_train.shape[2]
-        )
-    ),
-
-    GRU(
-        64,
-        return_sequences=True
-    ),
-
-    Dropout(0.2),
-
-    GRU(32),
-
-    Dropout(0.2),
-
-    Dense(1)
-])
-
-# ==========================================
-# 13. 编译模型
-# ==========================================
-
-model.compile(
-
-    optimizer='adam',
-
-    loss='mse',
-
-    metrics=['mae']
-)
-
-model.summary()
-
-# ==========================================
-# 14. EarlyStopping
-# ==========================================
-
-early_stop = EarlyStopping(
-
-    monitor='val_loss',
-
-    patience=3,
-
-    restore_best_weights=True
-)
-
-# ==========================================
-# 15. 开始训练
-# ==========================================
-
-print("开始训练 GRU...")
-
-history = model.fit(
-
-    X_train,
-    y_train,
-
-    validation_data=(
-        X_test,
-        y_test
-    ),
-
-    epochs=15,
-
-    batch_size=128,
-
-    callbacks=[early_stop],
-
-    verbose=1
-)
-
-# ==========================================
-# 16. 预测
-# ==========================================
-
-print("开始预测...")
-
-y_pred = model.predict(X_test)
-
-y_pred = y_pred.flatten()
-
-# 防止负数
-y_pred = np.maximum(
-    y_pred,
-    0
-)
-
-# ==========================================
-# 17. 模型评估
-# ==========================================
-
-rmse = np.sqrt(
-
-    mean_squared_error(
-        y_test,
-        y_pred
+def train_gru(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    selected_features: list[str],
+    target_col: str,
+    window_size: int,
+    epochs: int,
+    batch_size: int,
+) -> tuple[Sequential, StandardScaler, dict, pd.DataFrame]:
+    timeline = pd.concat([train_df, test_df], ignore_index=True).sort_values(
+        [REGION_GROUP_COL, "datetime"]
     )
-)
+    test_start_dt = test_df["datetime"].min()
 
-mae = mean_absolute_error(
-    y_test,
-    y_pred
-)
+    scaler = StandardScaler()
+    scaler.fit(timeline[selected_features])
 
-r2 = r2_score(
-    y_test,
-    y_pred
-)
+    X_train_parts: list[np.ndarray] = []
+    y_train_parts: list[np.ndarray] = []
+    X_test_parts: list[np.ndarray] = []
+    y_test_parts: list[np.ndarray] = []
+    test_meta: list[dict] = []
 
-print("\n============================")
-print("GRU 模型评估结果")
-print("============================")
-print("RMSE:", rmse)
-print("MAE :", mae)
-print("R^2 :", r2)
-print("============================")
+    for geohash, region_df in timeline.groupby(REGION_GROUP_COL, sort=False):
+        region_df = region_df.sort_values("datetime")
+        features = scaler.transform(region_df[selected_features]).astype(np.float32)
+        target_values = region_df[target_col].values.astype(np.float32)
+        datetimes = region_df["datetime"].values
 
-# ==========================================
-# 18. 预测结果图
-# ==========================================
+        if len(region_df) <= window_size:
+            continue
 
-print("生成预测图...")
+        X_all, y_all, dt_all = create_sequences(
+            features,
+            target_values,
+            datetimes,
+            window_size,
+        )
+        is_test = dt_all >= np.datetime64(test_start_dt)
 
-plt.figure(figsize=(16,6))
+        if (~is_test).any():
+            X_train_parts.append(X_all[~is_test])
+            y_train_parts.append(y_all[~is_test])
 
-sample_num = 1000
+        if is_test.any():
+            test_indices = np.where(is_test)[0]
+            X_test_parts.append(X_all[is_test])
+            y_test_parts.append(y_all[is_test])
+            for idx in test_indices:
+                test_meta.append({
+                    REGION_GROUP_COL: geohash,
+                    "datetime": pd.to_datetime(dt_all[idx]),
+                    target_col: float(y_all[idx]),
+                })
 
-plt.plot(
-    y_test[:sample_num],
-    label='Actual',
-    linewidth=2
-)
+    if not X_train_parts or not X_test_parts:
+        raise ValueError("GRU 序列样本不足，请检查各地区数据量或减小 --window-size。")
 
-plt.plot(
-    y_pred[:sample_num],
-    label='Predicted',
-    linewidth=2
-)
+    X_train = np.concatenate(X_train_parts, axis=0)
+    y_train = np.concatenate(y_train_parts, axis=0)
+    X_test = np.concatenate(X_test_parts, axis=0)
+    y_test = np.concatenate(y_test_parts, axis=0)
 
-plt.title(
-    'GRU: Actual vs Predicted Pickups',
-    fontsize=18,
-    fontweight='bold'
-)
+    model = Sequential([
+        Input(shape=(X_train.shape[1], X_train.shape[2])),
+        GRU(64, return_sequences=True),
+        Dropout(0.2),
+        GRU(32),
+        Dropout(0.2),
+        Dense(1),
+    ])
+    model.compile(optimizer="adam", loss="mse", metrics=["mae"])
 
-plt.xlabel(
-    'Samples',
-    fontsize=14
-)
+    print(f"\n开始训练 {MODEL_NAME}...")
+    print(f"训练序列数：{len(X_train)}")
+    print(f"测试序列数：{len(X_test)}")
+    print(f"窗口大小：{window_size}")
+    print(f"使用特征数：{len(selected_features)}")
 
-plt.ylabel(
-    'Pickups',
-    fontsize=14
-)
+    early_stop = EarlyStopping(
+        monitor="val_loss",
+        patience=5,
+        restore_best_weights=True,
+    )
 
-plt.legend()
+    model.fit(
+        X_train,
+        y_train,
+        validation_data=(X_test, y_test),
+        epochs=epochs,
+        batch_size=batch_size,
+        callbacks=[early_stop],
+        verbose=1,
+    )
 
-plt.grid(alpha=0.3)
+    train_pred = model.predict(X_train, verbose=0).flatten()
+    test_pred = np.maximum(model.predict(X_test, verbose=0).flatten(), 0)
 
-plt.tight_layout()
+    metrics = {}
+    metrics.update(evaluate_predictions(y_train, train_pred, "train"))
+    metrics.update(evaluate_predictions(y_test, test_pred, "test"))
 
-plt.savefig(
-    "gru_actual_vs_pred.png",
-    dpi=300,
-    bbox_inches='tight'
-)
+    test_eval_df = pd.DataFrame(test_meta)
+    pred_df = build_prediction_dataframe(test_eval_df, test_pred, target_col)
 
-plt.close()
+    return model, scaler, metrics, pred_df
 
-# ==========================================
-# 19. Loss曲线
-# ==========================================
 
-print("生成 Loss 曲线...")
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="使用 may14 + jun14 数据训练 GRU，并预测六月最后一周 pickups。"
+    )
+    add_shared_cli_arguments(parser, result_prefix_default="result_gru")
+    parser.add_argument(
+        "--window-size",
+        type=int,
+        default=24,
+        help="GRU 时间窗口大小（小时），默认 24。",
+    )
+    parser.add_argument(
+        "--epochs",
+        type=int,
+        default=30,
+        help="训练轮数，默认 30。",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=32,
+        help="批大小，默认 32。",
+    )
+    args = parser.parse_args()
 
-plt.figure(figsize=(10,6))
+    result_dir = make_result_dir(args.result_prefix)
+    input_paths = [Path(p) for p in args.inputs]
 
-plt.plot(
-    history.history['loss'],
-    label='Train Loss',
-    linewidth=2
-)
+    print(f"结果目录：{result_dir}")
 
-plt.plot(
-    history.history['val_loss'],
-    label='Validation Loss',
-    linewidth=2
-)
+    print(f"特征模式：{args.feature_mode}")
 
-plt.title(
-    'GRU Training Loss',
-    fontsize=18,
-    fontweight='bold'
-)
+    df, train_df, test_df, test_start, selected_features, ranking_df = prepare_hourly_dataset(
+        input_paths=input_paths,
+        target_col=args.target,
+        feature_mode=args.feature_mode,
+        top_k=args.k,
+    )
 
-plt.xlabel(
-    'Epoch',
-    fontsize=14
-)
+    model, scaler, metrics, pred_df = train_gru(
+        train_df=train_df,
+        test_df=test_df,
+        selected_features=selected_features,
+        target_col=args.target,
+        window_size=args.window_size,
+        epochs=args.epochs,
+        batch_size=args.batch_size,
+    )
 
-plt.ylabel(
-    'Loss',
-    fontsize=14
-)
+    print("\n评估结果：")
+    print(f"Train MAE  = {metrics['train_mae']:.6f}")
+    print(f"Train RMSE = {metrics['train_rmse']:.6f}")
+    print(f"Train R2   = {metrics['train_r2']:.6f}")
+    print(f"Test MAE   = {metrics['test_mae']:.6f}")
+    print(f"Test RMSE  = {metrics['test_rmse']:.6f}")
+    print(f"Test R2    = {metrics['test_r2']:.6f}")
 
-plt.legend()
+    joblib.dump(
+        {"model": model, "scaler": scaler, "features": selected_features},
+        result_dir / "gru_model.pkl",
+    )
 
-plt.grid(alpha=0.3)
+    config = {
+        "model": MODEL_NAME,
+        "input_files": [str(p) for p in input_paths],
+        "target_col": args.target,
+        "result_dir": str(result_dir),
+        "test_start": str(test_start),
+        "window_size": args.window_size,
+        "epochs": args.epochs,
+        "batch_size": args.batch_size,
+        "train_rows": int(len(train_df)),
+        "test_rows": int(len(test_df)),
+        "selected_feature_count": int(len(selected_features)),
+        "prediction_granularity": "hourly_by_geohash",
+        "region_count": int(df[REGION_GROUP_COL].nunique()),
+        "feature_mode": args.feature_mode,
+        "k": args.k,
+    }
 
-plt.tight_layout()
+    save_standard_outputs(
+        result_dir=result_dir,
+        df=df,
+        train_df=train_df,
+        test_df=test_df,
+        pred_df=pred_df,
+        metrics=metrics,
+        config=config,
+        selected_features=selected_features,
+        ranking_df=ranking_df,
+        test_start=test_start,
+        model_name=MODEL_NAME,
+        model_filename="gru_model.pkl",
+        top_regions=args.top_regions,
+        save_full_data=args.save_full_data,
+    )
 
-plt.savefig(
-    "gru_loss_curve.png",
-    dpi=300,
-    bbox_inches='tight'
-)
+    print("\n全部完成。")
+    print(f"所有结果已保存到：{result_dir}")
 
-plt.close()
 
-print("训练完成！")
+if __name__ == "__main__":
+    main()

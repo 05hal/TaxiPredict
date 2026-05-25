@@ -1,412 +1,195 @@
-import pandas as pd
+# CatBoost 分 geohash 地区、区域×小时 pickups 预测
+# 数据管道与 xgboostEMA 一致：去泄漏、区域×小时聚合、top-N 地区输出
+
+from __future__ import annotations
+
+import argparse
+import warnings
+from pathlib import Path
+
 import numpy as np
-import matplotlib.pyplot as plt
-
+import pandas as pd
 from catboost import CatBoostRegressor
-from sklearn.metrics import (
-    mean_squared_error,
-    mean_absolute_error,
-    r2_score
-)
-from sklearn.preprocessing import LabelEncoder
 
-# ==========================================
-# 1. 读取数据
-# ==========================================
-
-print("读取数据...")
-
-may_df = pd.read_csv(
-    "../may14/taxi_prediction_hourly_with_weather.csv"
+from taxi_pipeline import (
+    REGION_GROUP_COL,
+    add_shared_cli_arguments,
+    build_prediction_dataframe,
+    evaluate_predictions,
+    make_result_dir,
+    prepare_hourly_dataset,
+    save_standard_outputs,
+    try_run_shap,
 )
 
-jun_df = pd.read_csv(
-    "../jun14/taxi_prediction_hourly_with_weather.csv"
-)
+warnings.filterwarnings("ignore")
 
-# ==========================================
-# 2. 划分训练集和测试集
-# ==========================================
+MODEL_NAME = "CatBoost"
 
-print("划分训练测试集...")
 
-# 训练集：5月 + 6月前3周
-jun_train_df = jun_df[
-    jun_df['day'] <= 22
-].copy()
+def train_catboost(
+    train_df: pd.DataFrame,
+    test_df: pd.DataFrame,
+    selected_features: list[str],
+    target_col: str,
+    iterations: int,
+    learning_rate: float,
+    depth: int,
+) -> tuple[CatBoostRegressor, dict, pd.DataFrame]:
+    X_train = train_df[selected_features]
+    y_train = train_df[target_col]
+    X_test = test_df[selected_features]
+    y_test = test_df[target_col]
 
-train_df = pd.concat(
-    [may_df, jun_train_df],
-    ignore_index=True
-)
-
-# 测试集：6月最后一周
-test_df = jun_df[
-    jun_df['day'] >= 23
-].copy()
-
-target_col = 'pickups'
-
-# ==========================================
-# 3. 构建高级特征
-# ==========================================
-
-print("构建高级特征...")
-
-for df in [train_df, test_df]:
-
-    # 高峰 + 周末
-    df['peak_weekend'] = (
-        df['is_peak'] * df['weekend']
+    model = CatBoostRegressor(
+        iterations=iterations,
+        learning_rate=learning_rate,
+        depth=depth,
+        loss_function="RMSE",
+        eval_metric="RMSE",
+        random_seed=42,
+        l2_leaf_reg=8,
+        subsample=0.85,
+        verbose=100,
     )
 
-    # 节假日 + 高峰
-    df['holiday_peak'] = (
-        df['is_holiday'] * df['is_peak']
+    print(f"\n开始训练 {MODEL_NAME}...")
+    print(f"训练样本数：{len(X_train)}")
+    print(f"测试样本数：{len(X_test)}")
+    print(f"使用特征数：{len(selected_features)}")
+
+    model.fit(
+        X_train,
+        y_train,
+        eval_set=(X_test, y_test),
+        use_best_model=True,
     )
 
-    # 下雨 + 高峰
-    df['rain_peak'] = (
-        df['is_rain'] * df['is_peak']
+    train_pred = np.maximum(model.predict(X_train), 0)
+    test_pred = np.maximum(model.predict(X_test), 0)
+
+    metrics = {}
+    metrics.update(evaluate_predictions(y_train, train_pred, "train"))
+    metrics.update(evaluate_predictions(y_test, test_pred, "test"))
+
+    pred_df = build_prediction_dataframe(test_df, test_pred, target_col)
+    return model, metrics, pred_df
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(
+        description="使用 may14 + jun14 数据训练 CatBoost，并预测六月最后一周 pickups。"
+    )
+    add_shared_cli_arguments(parser, result_prefix_default="result_catboost")
+    parser.add_argument(
+        "--iterations",
+        type=int,
+        default=800,
+        help="CatBoost 迭代轮数，默认 800。",
+    )
+    parser.add_argument(
+        "--learning-rate",
+        type=float,
+        default=0.05,
+        help="学习率，默认 0.05。",
+    )
+    parser.add_argument(
+        "--depth",
+        type=int,
+        default=6,
+        help="树深度，默认 6。",
+    )
+    args = parser.parse_args()
+
+    result_dir = make_result_dir(args.result_prefix)
+    input_paths = [Path(p) for p in args.inputs]
+
+    print(f"结果目录：{result_dir}")
+
+    print(f"特征模式：{args.feature_mode}")
+
+    df, train_df, test_df, test_start, selected_features, ranking_df = prepare_hourly_dataset(
+        input_paths=input_paths,
+        target_col=args.target,
+        feature_mode=args.feature_mode,
+        top_k=args.k,
     )
 
-    # 温度 + 湿度
-    df['temp_rhum'] = (
-        df['temp'] * df['rhum']
+    model, metrics, pred_df = train_catboost(
+        train_df=train_df,
+        test_df=test_df,
+        selected_features=selected_features,
+        target_col=args.target,
+        iterations=args.iterations,
+        learning_rate=args.learning_rate,
+        depth=args.depth,
     )
 
-    # 温度 + 风速
-    df['temp_wspd'] = (
-        df['temp'] * df['wspd']
+    print("\n评估结果：")
+    print(f"Train MAE  = {metrics['train_mae']:.6f}")
+    print(f"Train RMSE = {metrics['train_rmse']:.6f}")
+    print(f"Train R2   = {metrics['train_r2']:.6f}")
+    print(f"Test MAE   = {metrics['test_mae']:.6f}")
+    print(f"Test RMSE  = {metrics['test_rmse']:.6f}")
+    print(f"Test R2    = {metrics['test_r2']:.6f}")
+
+    importance_df = pd.DataFrame({
+        "feature": selected_features,
+        "importance": model.get_feature_importance(),
+    }).sort_values("importance", ascending=False)
+
+    config = {
+        "model": MODEL_NAME,
+        "input_files": [str(p) for p in input_paths],
+        "target_col": args.target,
+        "result_dir": str(result_dir),
+        "test_start": str(test_start),
+        "iterations": args.iterations,
+        "learning_rate": args.learning_rate,
+        "depth": args.depth,
+        "train_rows": int(len(train_df)),
+        "test_rows": int(len(test_df)),
+        "selected_feature_count": int(len(selected_features)),
+        "prediction_granularity": "hourly_by_geohash",
+        "region_count": int(df[REGION_GROUP_COL].nunique()),
+        "feature_mode": args.feature_mode,
+        "k": args.k,
+        "shap_enabled": bool(args.shap),
+    }
+
+    model.save_model(result_dir / "catboost_model.cbm")
+
+    save_standard_outputs(
+        result_dir=result_dir,
+        df=df,
+        train_df=train_df,
+        test_df=test_df,
+        pred_df=pred_df,
+        metrics=metrics,
+        config=config,
+        selected_features=selected_features,
+        ranking_df=ranking_df,
+        test_start=test_start,
+        model_name=MODEL_NAME,
+        model_filename="catboost_model.cbm",
+        top_regions=args.top_regions,
+        save_full_data=args.save_full_data,
+        importance_df=importance_df,
+        importance_filename="catboost_feature_importance.csv",
     )
 
-# ==========================================
-# 4. 邻近区域聚合特征
-# ==========================================
-
-print("构建邻近区域聚合特征...")
-
-# geohash 前缀
-train_df['geo_prefix'] = (
-    train_df['geohash']
-    .astype(str)
-    .str[:4]
-)
-
-test_df['geo_prefix'] = (
-    test_df['geohash']
-    .astype(str)
-    .str[:4]
-)
-
-# 邻近区域平均订单量
-geo_mean = (
-    train_df.groupby('geo_prefix')['pickups']
-    .mean()
-)
-
-train_df['geo_avg_pickups'] = (
-    train_df['geo_prefix']
-    .map(geo_mean)
-)
-
-test_df['geo_avg_pickups'] = (
-    test_df['geo_prefix']
-    .map(geo_mean)
-)
-
-# 缺失值填充
-test_df['geo_avg_pickups'] = (
-    test_df['geo_avg_pickups']
-    .fillna(train_df['pickups'].mean())
-)
-
-# ==========================================
-# 5. 历史滑动窗口特征
-# ==========================================
-
-print("构建历史窗口特征...")
-
-train_df = train_df.sort_values(
-    ['geohash', 'day', 'time_cat']
-)
-
-test_df = test_df.sort_values(
-    ['geohash', 'day', 'time_cat']
-)
-
-# 前1小时订单量
-train_df['pickup_lag1'] = (
-    train_df.groupby('geohash')['pickups']
-    .shift(1)
-    .fillna(0)
-)
-
-# 前3小时移动平均
-train_df['pickup_prev3'] = (
-    train_df.groupby('geohash')['pickups']
-    .transform(
-        lambda x:
-        x.shift(1)
-        .rolling(3)
-        .mean()
-    )
-    .fillna(0)
-)
-
-# 测试集使用训练集均值近似
-test_df['pickup_lag1'] = (
-    train_df['pickup_lag1'].mean()
-)
-
-test_df['pickup_prev3'] = (
-    train_df['pickup_prev3'].mean()
-)
-
-# ==========================================
-# 6. 特征列表
-# ==========================================
-
-feature_cols = [
-    c for c in train_df.columns
-    if c != target_col
-]
-
-X_train = train_df[feature_cols].copy()
-y_train = train_df[target_col]
-
-X_test = test_df[feature_cols].copy()
-y_test = test_df[target_col]
-
-# ==========================================
-# 7. 编码类别特征
-# ==========================================
-
-print("编码类别特征...")
-
-categorical_cols = [
-    'time_cat',
-    'day_cat',
-    'geohash',
-    'geo_prefix'
-]
-
-for col in categorical_cols:
-
-    le = LabelEncoder()
-
-    all_values = pd.concat([
-        X_train[col].astype(str),
-        X_test[col].astype(str)
-    ])
-
-    le.fit(all_values)
-
-    X_train[col] = le.transform(
-        X_train[col].astype(str)
-    )
-
-    X_test[col] = le.transform(
-        X_test[col].astype(str)
-    )
-
-# ==========================================
-# 8. log1p目标变换
-# ==========================================
-
-print("进行目标变换...")
-
-y_train_log = np.log1p(y_train)
-
-# ==========================================
-# 9. CatBoost训练
-# ==========================================
-
-print("开始训练 CatBoost...")
-
-model = CatBoostRegressor(
-
-    iterations=800,
-
-    learning_rate=0.05,
-
-    depth=6,
-
-    loss_function='RMSE',
-
-    eval_metric='RMSE',
-
-    random_seed=42,
-
-    l2_leaf_reg=8,
-
-    subsample=0.8,
-
-    random_strength=2,
-
-    bagging_temperature=1,
-
-    verbose=100
-)
-
-model.fit(
-    X_train,
-    y_train_log,
-
-    eval_set=(
-        X_test,
-        np.log1p(y_test)
-    ),
-
-    use_best_model=True
-)
-
-# ==========================================
-# 10. 开始预测
-# ==========================================
-
-print("开始预测...")
-
-y_pred_log = model.predict(X_test)
-
-# 反变换
-y_pred = np.expm1(y_pred_log)
-
-# 防止负值
-y_pred = np.maximum(y_pred, 0)
-
-# ==========================================
-# 11. 模型评估
-# ==========================================
-
-rmse = np.sqrt(
-    mean_squared_error(
-        y_test,
-        y_pred
-    )
-)
-
-mae = mean_absolute_error(
-    y_test,
-    y_pred
-)
-
-r2 = r2_score(
-    y_test,
-    y_pred
-)
-
-print("\n============================")
-print("CatBoost 模型评估结果")
-print("============================")
-print("RMSE:", rmse)
-print("MAE :", mae)
-print("R^2 :", r2)
-print("============================")
-
-# ==========================================
-# 12. 生成预测结果图
-# ==========================================
-
-print("生成预测图...")
-
-plt.figure(figsize=(16, 6))
-
-sample_num = 1000
-
-plt.plot(
-    y_test.values[:sample_num],
-    label='Actual',
-    linewidth=2
-)
-
-plt.plot(
-    y_pred[:sample_num],
-    label='Predicted',
-    linewidth=2
-)
-
-plt.title(
-    'CatBoost: Actual vs Predicted Pickups',
-    fontsize=18,
-    fontweight='bold'
-)
-
-plt.xlabel(
-    'Samples',
-    fontsize=14
-)
-
-plt.ylabel(
-    'Pickups',
-    fontsize=14
-)
-
-plt.legend()
-
-plt.grid(alpha=0.3)
-
-plt.tight_layout()
-
-plt.savefig(
-    "catboost_actual_vs_pred.png",
-    dpi=300,
-    bbox_inches='tight'
-)
-
-plt.close()
-
-# ==========================================
-# 13. 特征重要性图
-# ==========================================
-
-print("生成特征重要性图...")
-
-importance = model.get_feature_importance()
-
-feature_importance = pd.DataFrame({
-    'feature': feature_cols,
-    'importance': importance
-})
-
-feature_importance = feature_importance.sort_values(
-    by='importance',
-    ascending=False
-).head(15)
-
-plt.figure(figsize=(12, 8))
-
-plt.barh(
-    feature_importance['feature'],
-    feature_importance['importance']
-)
-
-plt.title(
-    'Top 15 Feature Importance (CatBoost)',
-    fontsize=18,
-    fontweight='bold'
-)
-
-plt.xlabel(
-    'Importance',
-    fontsize=14
-)
-
-plt.ylabel(
-    'Features',
-    fontsize=14
-)
-
-plt.gca().invert_yaxis()
-
-plt.tight_layout()
-
-plt.savefig(
-    "catboost_feature_importance.png",
-    dpi=300,
-    bbox_inches='tight'
-)
-
-plt.close()
-
-print("训练完成！")
+    if args.shap:
+        try_run_shap(
+            model=model,
+            test_df=test_df,
+            selected_features=selected_features,
+            result_dir=result_dir,
+            max_samples=args.shap_max_samples,
+        )
+
+    print("\n全部完成。")
+    print(f"所有结果已保存到：{result_dir}")
+
+
+if __name__ == "__main__":
+    main()

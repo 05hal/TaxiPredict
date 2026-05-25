@@ -1,4 +1,11 @@
 /new/may14/taxi_prediction_hourly_with_weather.csv
 /new/jun14/taxi_prediction_hourly_with_weather.csv
+/new/may14/xgb_dense_features.csv
+/new/jun14/xgb_dense_features.csv
 /new/result_*/
+/new/catboost_info/
+/new/feature_analysis_report.csv
+/new/models/*.png
+/new/**/__pycache__/
 *.pkl
+backup_local_results/

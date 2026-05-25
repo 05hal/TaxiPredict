@@ -34,24 +34,26 @@ def run_shap(
     if len(X) > max_samples:
         X = X.sample(n=max_samples, random_state=42)
 
-    # 诊断：检查各列类型
-    for i, col in enumerate(X.columns):
-        if X[col].dtype == object:
-            sample = X[col].iloc[0]
-            print(f"  列 [{i}] {col}: type={type(sample).__name__}, sample={repr(sample)[:60]}")
-    X_float = X.astype({c: float for c in X.columns if pd.api.types.is_numeric_dtype(X[c])})
-    for c in X.columns:
-        if c not in X_float.columns or X_float[c].dtype == object:
-            print(f"  丢弃非数值列: {c}")
-    X_clean = X_float.copy()
+    _cat_indices = getattr(model, "cat_feature_indices", None)
+    if _cat_indices is not None:
+        cat_cols = [list(X.columns)[i] for i in _cat_indices if i < len(X.columns)]
+        X_clean = X.copy()
+        for col in X_clean.columns:
+            if col not in cat_cols:
+                X_clean[col] = pd.to_numeric(X_clean[col], errors="coerce").fillna(0)
+            else:
+                X_clean[col] = X_clean[col].astype(str).fillna("")
+    else:
+        X_clean = X.astype({c: float for c in X.columns if pd.api.types.is_numeric_dtype(X[c])})
+        for c in X.columns:
+            if X[c].dtype == object and c not in X_clean.columns:
+                print(f"  跳过非数值列: {c}")
 
     try:
         explainer = shap.TreeExplainer(model)
         shap_values = explainer.shap_values(X_clean)
     except Exception as e:
         print(f"  SHAP 分析失败: {e}")
-        import traceback
-        traceback.print_exc()
         return False
 
     if isinstance(shap_values, list):

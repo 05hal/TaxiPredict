@@ -1,0 +1,6 @@
+# 树模型 + SHAP
+# 注意：xgboost 2.0+ 需要 shap >=0.46 才能兼容 SHAP 图
+xgboost>=2.0
+lightgbm>=4.0
+catboost>=1.2
+shap>=0.46

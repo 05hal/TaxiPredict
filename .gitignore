@@ -1,11 +1,51 @@
-/new/may14/taxi_prediction_hourly_with_weather.csv
-/new/jun14/taxi_prediction_hourly_with_weather.csv
-/new/may14/xgb_dense_features.csv
-/new/jun14/xgb_dense_features.csv
-/new/result_*/
-/new/catboost_info/
-/new/feature_analysis_report.csv
-/new/models/*.png
-/new/**/__pycache__/
+# ── 新架构产出（可重新生成） ──────────────────────────────
+/data/processed/
+/data/features/
+/output/
+/legacy/new/result_*/
+/legacy/new/catboost_info/
 *.pkl
+*.pt
+*.keras
+catboost_info/
+
+# ── Python 缓存 ───────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.so
+
+# ── 旧代码中间数据（可从原始 CSV 重现） ───────────────────
+/legacy/new/may14/*.csv
+/legacy/new/jun14/*.csv
+/legacy/new/may14/*.png
+/legacy/new/jun14/*.png
+/legacy/new/jun14/*.html
+/legacy/new/jun14/hourly_density_frames/
+/legacy/new/jun14/*.zip
+/legacy/new/*.csv
+/legacy/new/*.txt
+/legacy/new/feature_analysis_report.*
+/legacy/data_preprocess/output/
+
+# ── 旧模型归档（检查点 + 运行时产物） ─────────────────────
+/legacy/new/models/*.pkl
+/legacy/new/models/*.png
+/legacy/new_model/stid_best_*/
+/legacy/new_model/*.csv
+
+# ── IDE / 系统 ────────────────────────────────────────────
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# ── 本地覆盖配置 ─────────────────────────────────────────
+config/local.yaml
+.env
+
+# ── 其他 ──────────────────────────────────────────────────
 backup_local_results/
+/.deepseek

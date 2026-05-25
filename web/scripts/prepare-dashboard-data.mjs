@@ -658,9 +658,28 @@ function copyAsset(source, targetName) {
   return `/dashboard-assets/${targetName}`;
 }
 
-function copyOptionalAsset(relativePath, targetName) {
+function resolveAssetSource(relativePath, targetName) {
   const source = path.join(projectRoot, relativePath);
-  if (!fs.existsSync(source)) return null;
+  if (fs.existsSync(source)) return source;
+
+  const fallbackSource = path.join(assetRoot, targetName);
+  if (fs.existsSync(fallbackSource)) return fallbackSource;
+
+  return null;
+}
+
+function copyRequiredAsset(relativePath, targetName) {
+  const source = resolveAssetSource(relativePath, targetName);
+  if (!source) {
+    throw new Error(`Missing required asset: ${relativePath} (fallback: public/dashboard-assets/${targetName})`);
+  }
+
+  return copyAsset(source, targetName);
+}
+
+function copyOptionalAsset(relativePath, targetName) {
+  const source = resolveAssetSource(relativePath, targetName);
+  if (!source) return null;
 
   return copyAsset(source, targetName);
 }
@@ -681,7 +700,7 @@ function buildStaticAssets() {
   ];
 
   for (const [key, relativePath] of preprocessAssets) {
-    assets.preprocess[key] = copyAsset(path.join(projectRoot, relativePath), `preprocess/${path.basename(relativePath)}`);
+    assets.preprocess[key] = copyRequiredAsset(relativePath, `preprocess/${path.basename(relativePath)}`);
   }
 
   const modelAssets = [
@@ -694,7 +713,7 @@ function buildStaticAssets() {
   ];
 
   for (const [title, relativePath] of modelAssets) {
-    assets.models.push({ title, src: copyAsset(path.join(projectRoot, relativePath), `models/${path.basename(relativePath)}`) });
+    assets.models.push({ title, src: copyRequiredAsset(relativePath, `models/${path.basename(relativePath)}`) });
   }
 
   const optionalXgboostAssets = [
@@ -716,15 +735,13 @@ function buildStaticAssets() {
   }
 
   for (const month of monthConfigs) {
-    const monthDir = path.join(projectRoot, 'new', month.dir);
-
     assets.months[month.key] = {
-      pickupsByHour: copyAsset(path.join(monthDir, 'pickups_by_hour.png'), `${month.key}/pickups_by_hour.png`),
-      pickupsByDay: copyAsset(path.join(monthDir, 'pickups_by_day.png'), `${month.key}/pickups_by_day.png`),
-      pickupsByTime: copyAsset(path.join(monthDir, 'pickups_by_time.png'), `${month.key}/pickups_by_time.png`),
-      density: copyAsset(path.join(monthDir, 'pickup_density_geohash.png'), `${month.key}/pickup_density_geohash.png`),
-      densityGrid: copyAsset(path.join(monthDir, 'hourly_density_grid.png'), `${month.key}/hourly_density_grid.png`),
-      densityGif: copyAsset(path.join(monthDir, month.gif), `${month.key}/${month.gif}`),
+      pickupsByHour: copyRequiredAsset(path.join('new', month.dir, 'pickups_by_hour.png'), `${month.key}/pickups_by_hour.png`),
+      pickupsByDay: copyRequiredAsset(path.join('new', month.dir, 'pickups_by_day.png'), `${month.key}/pickups_by_day.png`),
+      pickupsByTime: copyRequiredAsset(path.join('new', month.dir, 'pickups_by_time.png'), `${month.key}/pickups_by_time.png`),
+      density: copyRequiredAsset(path.join('new', month.dir, 'pickup_density_geohash.png'), `${month.key}/pickup_density_geohash.png`),
+      densityGrid: copyRequiredAsset(path.join('new', month.dir, 'hourly_density_grid.png'), `${month.key}/hourly_density_grid.png`),
+      densityGif: copyRequiredAsset(path.join('new', month.dir, month.gif), `${month.key}/${month.gif}`),
     };
   }
 

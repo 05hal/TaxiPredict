@@ -1,0 +1,102 @@
+# =============================================================================
+# TaxiPredict — 集中配置
+# 所有路径相对于项目根目录 (TaxiPredict/)
+# =============================================================================
+
+# ── 数据路径 ──────────────────────────────────────────────────────────────
+data:
+  raw_dir: data/raw                # 原始 Uber CSV: uber-raw-data-may14.csv, uber-raw-data-jun14.csv
+  weather_csv: legacy/new/LCD_USW00094728_2014.csv  # NOAA 天气 CSV（旧数据）
+  processed_dir: data/processed    # ETL 产出
+  features_dir: data/features      # 特征工程产出
+
+# ── 管线控制 ──────────────────────────────────────────────────────────────
+pipeline:
+  aggregation: geohash             # 空间聚合方式: geohash | grid
+  grid_size: 0.02                  # grid 模式的单元格大小（度）
+  top_regions: 30                  # 保留流量最高的区域数（STID 用）
+  test_mode: june_last_week        # 测试集划分: june_last_week | ratio
+  train_ratio: 0.70                # 按比例划分时的训练集比例
+  val_ratio: 0.15                  # 按比例划分时的验证集比例
+
+# ── 特征工程参数 ──────────────────────────────────────────────────────────
+features:
+  lag_hours: [1, 2, 3, 6, 24, 48, 336]  # 客流滞后特征（小时）
+  rolling_windows: [6, 12, 48]           # 滚动窗口（步数，30min/步）
+  weather_roll_hours: [3, 6]             # 天气滚动窗口（小时）
+  top_k: 20                              # top_k 特征模式下保留的特征数
+
+# ── 模型参数 ──────────────────────────────────────────────────────────────
+models:
+
+  xgboost:
+    enabled: true
+    feature_mode: raw_all          # raw_all | top_k | ts_topk
+    feature_k: 20                  # top_k / ts_topk 用
+    n_estimators: 500
+    max_depth: 6
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    early_stopping_rounds: 20
+
+  catboost:
+    enabled: true
+    feature_mode: raw_all
+    feature_k: 20
+    iterations: 800
+    learning_rate: 0.05
+    depth: 6
+    l2_leaf_reg: 8
+    subsample: 0.85
+
+  lightgbm:
+    enabled: true
+    feature_mode: raw_all
+    feature_k: 20
+    n_estimators: 500
+    num_leaves: 31
+    learning_rate: 0.05
+    subsample: 0.8
+    colsample_bytree: 0.8
+    early_stopping_rounds: 20
+
+  gru:
+    enabled: false                 # 需要 TensorFlow
+    input_len: 48
+    hidden_units: [64, 32]
+    dropout: 0.2
+    epochs: 50
+    batch_size: 32
+
+  lightgcn:
+    enabled: false                 # 需要 PyTorch
+    embed_dim: 64
+    layer_num: 3
+    k_neighbors: 8
+    epochs: 100
+    batch_size: 1024
+    learning_rate: 0.001
+
+  stid:
+    enabled: false                 # 需要 PyTorch
+    input_len: 24
+    horizon: 1
+    hidden_dim: 128
+    embed_dim: 32
+    num_layers: 2
+    dropout: 0.1
+    learning_rate: 0.001
+    weight_decay: 0.0001
+    epochs: 40
+    batch_size: 32
+    patience: 12
+    device: auto                   # auto | cpu | cuda
+
+# ── 输出控制 ──────────────────────────────────────────────────────────────
+output:
+  dir: output                      # 所有产出汇总目录
+  save_full_data: false            # 是否保存完整中间数据 CSV
+  shap: true                       # 是否执行 SHAP 分析
+  top_regions_plot: 10             # 对比图输出的 top 区域数
+  report: true                     # 是否生成 Markdown 报告

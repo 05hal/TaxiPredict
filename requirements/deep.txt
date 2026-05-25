@@ -1,0 +1,4 @@
+# 深度学习模型（可选）
+# GRU 需要 TensorFlow，LightGCN/STID 需要 PyTorch
+torch>=2.1
+tensorflow==2.16.2

@@ -1,7 +1,0 @@
-# LightGCN 专用（在 requirements-models.txt 之后安装）
-# Windows CPU 请用 repair_deep_models.ps1 安装，避免残缺包。
-# 若手动安装 CPU 版：
-#   pip uninstall -y torch torchvision torchaudio
-#   pip install torch==2.4.1 --index-url https://download.pytorch.org/whl/cpu
-
-torch==2.4.1

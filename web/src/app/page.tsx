@@ -56,7 +56,7 @@ interface MetricItem {
   tone?: "sky" | "teal" | "violet" | "amber";
 }
 
-interface XgboostPredictionPoint {
+interface TreeModelPredictionPoint {
   time: string;
   label: string;
   predicted: number;
@@ -64,7 +64,7 @@ interface XgboostPredictionPoint {
   error: number;
 }
 
-interface XgboostTopRegion {
+interface TreeModelRegion {
   region: string;
   sampleCount: number;
   timeRange: string;
@@ -73,7 +73,23 @@ interface XgboostTopRegion {
   mae: number;
   rmse: number;
   fitScore: number;
-  points: XgboostPredictionPoint[];
+  points: TreeModelPredictionPoint[];
+}
+
+interface TreeModelData {
+  key: string;
+  label: string;
+  metrics: MetricItem[];
+  summary: {
+    regionCount: number;
+    sampleCount: number;
+    mae: string;
+    rmse: string;
+    r2: string;
+    topFeature: string;
+  };
+  regions: TreeModelRegion[];
+  featureRanking: RankedPoint[];
 }
 
 interface StidModelData {
@@ -198,6 +214,7 @@ interface DashboardData {
   errorHistogram: SeriesPoint[];
   residualTrend: SeriesPoint[];
   predictionTopErrors: RankedPoint[];
+  treeModels: TreeModelData[];
   xgboostMetrics: MetricItem[];
   xgboostTopRegions: {
     summary: {
@@ -205,8 +222,10 @@ interface DashboardData {
       sampleCount: number;
       mae: string;
       rmse: string;
+      r2: string;
+      topFeature: string;
     };
-    regions: XgboostTopRegion[];
+    regions: TreeModelRegion[];
   };
   stidModel: StidModelData;
   assets: {
@@ -216,6 +235,26 @@ interface DashboardData {
 }
 
 const dashboardData = dashboardJson as unknown as DashboardData;
+const treeModels: TreeModelData[] = Array.isArray(dashboardData.treeModels)
+  ? dashboardData.treeModels
+  : [
+  {
+    key: "xgboost",
+    label: "XGBoost",
+    metrics: dashboardData.xgboostMetrics ?? [],
+    summary: {
+      regionCount: dashboardData.xgboostTopRegions?.summary?.regionCount ?? 0,
+      sampleCount: dashboardData.xgboostTopRegions?.summary?.sampleCount ?? 0,
+      mae: dashboardData.xgboostTopRegions?.summary?.mae ?? "0.00",
+      rmse: dashboardData.xgboostTopRegions?.summary?.rmse ?? "0.00",
+      r2: dashboardData.xgboostTopRegions?.summary?.r2 ?? "0.0000",
+      topFeature: dashboardData.xgboostTopRegions?.summary?.topFeature ?? "--",
+    },
+    regions: dashboardData.xgboostTopRegions?.regions ?? [],
+    featureRanking: [],
+  },
+];
+const modelAssets = Array.isArray(dashboardData.assets?.models) ? dashboardData.assets.models : [];
 const numberFormatter = new Intl.NumberFormat("zh-CN");
 const icpRecord = "京ICP备2025149122号-1";
 const icpRecordUrl = "https://beian.miit.gov.cn/";
@@ -265,6 +304,13 @@ function getPeakLabel(hour: number) {
 
 function getFeatureDisplayName(feature: string) {
   return featureDisplayNames[feature] ?? feature.replace(/_/g, " ").replace(/\b\w/g, (char) => char.toUpperCase());
+}
+
+function getModelTagColor(modelKey: string) {
+  if (modelKey === "xgboost") return "gold";
+  if (modelKey === "lightgbm") return "green";
+  if (modelKey === "catboost") return "magenta";
+  return "cyan";
 }
 
 function SectionTitle({ eyebrow, title, description }: { eyebrow: string; title: string; description: string }) {
@@ -484,7 +530,7 @@ function LineChartCard({
   );
 }
 
-function XgboostRegionChart({ region }: { region: XgboostTopRegion }) {
+function TreeModelRegionChart({ region }: { region: TreeModelRegion }) {
   const values = region.points.flatMap((item) => [item.actual, item.predicted]);
   const maxValue = Math.max(...values, 1);
   const minValue = Math.min(...values, 0);
@@ -520,17 +566,20 @@ function XgboostRegionChart({ region }: { region: XgboostTopRegion }) {
   );
 }
 
-function XgboostTopRegionPanel({
+function TreeModelPanel({
   data,
   activeRegion,
   onChange,
 }: {
-  data: DashboardData["xgboostTopRegions"];
+  data: TreeModelData;
   activeRegion: string;
   onChange: (region: string) => void;
 }) {
-  const selectedRegion = data.regions.find((region) => region.region === activeRegion) ?? data.regions[0];
-  const rankedRegions = data.regions.map((region) => ({
+  const regions = Array.isArray(data.regions) ? data.regions : [];
+  const metrics = Array.isArray(data.metrics) ? data.metrics : [];
+  const featureRanking = Array.isArray(data.featureRanking) ? data.featureRanking : [];
+  const selectedRegion = regions.find((region) => region.region === activeRegion) ?? regions[0];
+  const rankedRegions = regions.map((region) => ({
     label: region.region,
     value: `MAE ${region.mae.toFixed(2)} / RMSE ${region.rmse.toFixed(2)}`,
     score: region.fitScore,
@@ -543,39 +592,74 @@ function XgboostTopRegionPanel({
       <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
         <div>
           <p className="text-sm text-slate-300">Top10 区域逐小时预测</p>
-          <h3 className="mt-1 text-2xl font-black text-white">XGBoost 区域预测细节</h3>
+          <h3 className="mt-1 text-2xl font-black text-white">{data.label} 区域预测细节</h3>
           <p className="mt-2 text-sm text-slate-400">
-            覆盖 {data.summary.regionCount} 个热点区域、{formatNumber(data.summary.sampleCount)} 条小时级记录，整体 MAE {data.summary.mae}。
+            覆盖 {data.summary.regionCount} 个热点区域、{formatNumber(data.summary.sampleCount)} 条小时级记录，整体 MAE {data.summary.mae}，Top 特征为{" "}
+            {getFeatureDisplayName(data.summary.topFeature)}。
           </p>
         </div>
-        <Tag color="cyan" className="rounded-full">
-          区域 {selectedRegion.region}
+        <Tag color={getModelTagColor(data.key)} className="rounded-full">
+          R² {data.summary.r2}
         </Tag>
+      </div>
+      <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+        {metrics.map((metric) => (
+          <MetricCard key={`${data.key}-${metric.label}`} label={metric.label} value={metric.value} caption={metric.change} />
+        ))}
       </div>
       <div className="grid gap-5 xl:grid-cols-[1.25fr_0.75fr]">
         <div>
-          <div className="mb-4 grid gap-3 sm:grid-cols-4">
-            <MetricCard label="样本数" value={selectedRegion.sampleCount} caption={selectedRegion.timeRange} />
-            <MetricCard label="真实总量" value={selectedRegion.actualTotal} caption="该区域逐小时真实订单" />
-            <MetricCard label="预测总量" value={selectedRegion.predictedTotal} caption="该区域逐小时预测订单" />
-            <MetricCard label="区域 MAE" value={selectedRegion.mae.toFixed(2)} caption={`RMSE ${selectedRegion.rmse.toFixed(2)}`} />
-          </div>
-          <div className="mb-3 flex gap-2 text-xs">
-            <span className="rounded-full bg-cyan-300/15 px-3 py-1 text-cyan-100">真实值</span>
-            <span className="rounded-full bg-amber-300/15 px-3 py-1 text-amber-100">预测值</span>
-          </div>
-          <XgboostRegionChart region={selectedRegion} />
+          {selectedRegion ? (
+            <>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm text-slate-300">区域拟合明细</p>
+                  <h4 className="mt-1 text-xl font-black text-white">{selectedRegion.region}</h4>
+                </div>
+                <Tag color="cyan" className="rounded-full">
+                  区域样本 {selectedRegion.sampleCount}
+                </Tag>
+              </div>
+              <div className="mb-4 grid gap-3 sm:grid-cols-4">
+                <MetricCard label="样本数" value={selectedRegion.sampleCount} caption={selectedRegion.timeRange} />
+                <MetricCard label="真实总量" value={selectedRegion.actualTotal} caption="该区域逐小时真实订单" />
+                <MetricCard label="预测总量" value={selectedRegion.predictedTotal} caption="该区域逐小时预测订单" />
+                <MetricCard label="区域 MAE" value={selectedRegion.mae.toFixed(2)} caption={`RMSE ${selectedRegion.rmse.toFixed(2)}`} />
+              </div>
+              <div className="mb-3 flex gap-2 text-xs">
+                <span className="rounded-full bg-cyan-300/15 px-3 py-1 text-cyan-100">真实值</span>
+                <span className="rounded-full bg-amber-300/15 px-3 py-1 text-amber-100">预测值</span>
+              </div>
+              <TreeModelRegionChart region={selectedRegion} />
+            </>
+          ) : (
+            <div className="rounded-[2rem] border border-white/10 bg-slate-950/70 p-6 text-sm text-slate-400">暂无区域预测数据。</div>
+          )}
         </div>
-        <div>
-          <div className="mb-4 flex items-end justify-between gap-3">
-            <div>
-              <p className="text-sm text-slate-300">区域拟合表现</p>
-              <h4 className="mt-1 text-xl font-black text-white">Top10 误差排行</h4>
+        <div className="grid gap-5">
+          <div>
+            <div className="mb-4 flex items-end justify-between gap-3">
+              <div>
+                <p className="text-sm text-slate-300">区域拟合表现</p>
+                <h4 className="mt-1 text-xl font-black text-white">Top10 误差排行</h4>
+              </div>
+              <span className="text-xs text-cyan-100/70">滚动查看更多</span>
             </div>
-            <span className="text-xs text-cyan-100/70">滚动查看更多</span>
+            <div className="max-h-[320px] overflow-y-auto pr-2 [scrollbar-gutter:stable]">
+              <RankedDataList data={rankedRegions} activeLabel={selectedRegion.region} onSelect={onChange} />
+            </div>
           </div>
-          <div className="max-h-[480px] overflow-y-auto pr-2 [scrollbar-gutter:stable]">
-            <RankedDataList data={rankedRegions} activeLabel={selectedRegion.region} onSelect={onChange} />
+          <div>
+            <div className="mb-4">
+              <p className="text-sm text-slate-300">特征排序</p>
+              <h4 className="mt-1 text-xl font-black text-white">Top8 特征重要性</h4>
+            </div>
+            <RankedDataList
+              data={featureRanking.map((item) => ({
+                ...item,
+                label: getFeatureDisplayName(item.label),
+              }))}
+            />
           </div>
         </div>
       </div>
@@ -1169,7 +1253,9 @@ function MonthPanel({ month }: { month: MonthData }) {
 export default function Home() {
   const [activePageIndex, setActivePageIndex] = useState(1);
   const [activeMonthKey, setActiveMonthKey] = useState<MonthData["key"]>("jun14");
-  const [activeXgboostRegion, setActiveXgboostRegion] = useState(dashboardData.xgboostTopRegions.regions[0]?.region ?? "");
+  const [activeTreeRegions, setActiveTreeRegions] = useState<Record<string, string>>(
+    Object.fromEntries(treeModels.map((model) => [model.key, model.regions[0]?.region ?? ""])),
+  );
   const [previewImage, setPreviewImage] = useState<{ title: string; src: string } | null>(null);
   const activeMonth = useMemo(
     () => dashboardData.months.find((month) => month.key === activeMonthKey) ?? dashboardData.months[0],
@@ -1418,29 +1504,16 @@ export default function Home() {
               <SectionTitle
                 eyebrow="Model Outputs"
                 title="预测模型效果看板"
-                description="集中展示 XGBoost、LightGBM、CatBoost 与 GRU 的训练和预测效果，方便横向比较传统树模型和序列模型表现。"
+                description="集中展示 XGBoost、LightGBM、CatBoost 与 STID 的结构化结果，并保留模型图片素材，方便横向比较树模型与时空模型表现。"
               />
-              <GlassCard className="mb-5">
-                <div className="mb-5 flex flex-wrap items-center justify-between gap-4">
-                  <div>
-                    <p className="text-sm text-slate-300">新增模型结果</p>
-                    <h3 className="mt-1 text-2xl font-black text-white">XGBoost 预测表现</h3>
-                  </div>
-                  <Tag color="gold" className="rounded-full">
-                    R² 0.9426
-                  </Tag>
-                </div>
-                <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-                  {dashboardData.xgboostMetrics.map((metric) => (
-                    <MetricCard key={metric.label} label={metric.label} value={metric.value} caption={metric.change} />
-                  ))}
-                </div>
-              </GlassCard>
-              <XgboostTopRegionPanel
-                data={dashboardData.xgboostTopRegions}
-                activeRegion={activeXgboostRegion}
-                onChange={setActiveXgboostRegion}
-              />
+              {treeModels.map((model) => (
+                <TreeModelPanel
+                  key={model.key}
+                  data={model}
+                  activeRegion={activeTreeRegions[model.key] ?? model.regions[0]?.region ?? ""}
+                  onChange={(region) => setActiveTreeRegions((current) => ({ ...current, [model.key]: region }))}
+                />
+              ))}
               <StidModelPanel data={dashboardData.stidModel} />
               <div className="mb-5 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
                 {dashboardData.predictionMetrics.map((metric) => (
@@ -1486,7 +1559,7 @@ export default function Home() {
                 </GlassCard>
               </div>
               <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                {dashboardData.assets.models.map((asset) => (
+                {modelAssets.map((asset) => (
                   <ImagePanel key={asset.src} title={asset.title} src={asset.src} onPreview={setPreviewImage} />
                 ))}
               </div>

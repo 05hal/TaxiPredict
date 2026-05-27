@@ -13,6 +13,10 @@ const monthConfigs = [
   { key: 'jun14', label: '2014 年 6 月', shortLabel: '6 月', dir: 'jun14', days: 30, gif: 'hourly_pickup_densityjune.gif' },
 ];
 
+function stripBom(value) {
+  return value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
+}
+
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
 }
@@ -51,7 +55,8 @@ function parseCsvLine(line) {
 }
 
 function readSingleRowCsv(filePath) {
-  const [headerLine, rowLine] = fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/);
+  const [rawHeaderLine, rowLine] = fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/);
+  const headerLine = stripBom(rawHeaderLine);
   const headers = parseCsvLine(headerLine);
   const values = parseCsvLine(rowLine);
 
@@ -61,7 +66,8 @@ function readSingleRowCsv(filePath) {
 function readCsvRecords(filePath) {
   if (!fs.existsSync(filePath)) return [];
 
-  const [headerLine, ...lines] = fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/);
+  const [rawHeaderLine, ...lines] = fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/);
+  const headerLine = stripBom(rawHeaderLine);
   const headers = parseCsvLine(headerLine);
 
   return lines
@@ -116,6 +122,38 @@ function mean(values) {
 
 function round(value, digits = 2) {
   return Number(value.toFixed(digits));
+}
+
+function findFirstMatchingFile(dirPath, prefix) {
+  if (!fs.existsSync(dirPath)) return null;
+
+  const matchedFile = fs
+    .readdirSync(dirPath)
+    .find((fileName) => fileName.toLowerCase().startsWith(prefix.toLowerCase()) && fileName.toLowerCase().endsWith('.csv'));
+
+  return matchedFile ? path.join(dirPath, matchedFile) : null;
+}
+
+function readModelFeatureRanking(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return [];
+
+  const rows = readCsvRecords(filePath)
+    .map((row) => ({
+      feature: row.feature,
+      pearson: Number.parseFloat(row.pearson_corr),
+      spearman: Number.parseFloat(row.spearman_corr),
+      selectionScore: Number.parseFloat(row.selection_score),
+    }))
+    .filter((row) => row.feature && Number.isFinite(row.selectionScore))
+    .sort((left, right) => right.selectionScore - left.selectionScore);
+
+  const maxScore = Math.max(...rows.map((row) => row.selectionScore), 1);
+
+  return rows.slice(0, 8).map((row) => ({
+    label: row.feature,
+    value: `Score ${row.selectionScore.toFixed(3)}`,
+    score: Math.max(1, Math.round((row.selectionScore / maxScore) * 100)),
+  }));
 }
 
 function increment(map, key, amount = 1) {
@@ -355,28 +393,38 @@ function buildPredictionAggregates(hourlyDemandMap) {
   };
 }
 
-function readXgboostTopRegionPredictions(filePath) {
-  if (!fs.existsSync(filePath)) {
+function readTreeModelData(modelKey, modelLabel, modelDir) {
+  const predictionsPath = findFirstMatchingFile(modelDir, 'top_regions_actual_vs_pred_simple');
+  const featureRankingPath = findFirstMatchingFile(modelDir, 'feature_ranking');
+  const featureRanking = readModelFeatureRanking(featureRankingPath);
+
+  if (!predictionsPath || !fs.existsSync(predictionsPath)) {
     return {
+      key: modelKey,
+      label: modelLabel,
+      metrics: [
+        { label: `${modelLabel} MAE`, value: '0.00', change: '热点区域小时级', tone: 'teal' },
+        { label: `${modelLabel} RMSE`, value: '0.00', change: '热点区域小时级', tone: 'violet' },
+        { label: `${modelLabel} R²`, value: '0.0000', change: '区域拟合优度', tone: 'amber' },
+        { label: 'Top10 区域样本', value: '0', change: '逐小时预测记录', tone: 'sky' },
+      ],
       summary: {
         regionCount: 0,
         sampleCount: 0,
         mae: '0.00',
         rmse: '0.00',
+        r2: '0.0000',
+        topFeature: featureRanking[0]?.label ?? '--',
       },
       regions: [],
+      featureRanking,
     };
   }
 
-  const [headerLine, ...lines] = fs.readFileSync(filePath, 'utf8').trim().split(/\r?\n/);
-  const headers = parseCsvLine(headerLine);
+  const rows = readCsvRecords(predictionsPath);
   const regionMap = new Map();
 
-  for (const line of lines) {
-    if (!line.trim()) continue;
-
-    const values = parseCsvLine(line);
-    const record = Object.fromEntries(headers.map((header, index) => [header, values[index] ?? '']));
+  for (const record of rows) {
     const region = record['地点'];
     const timestamp = record['时间'];
     const predicted = Number.parseFloat(record['预测值']);
@@ -396,11 +444,15 @@ function readXgboostTopRegionPredictions(filePath) {
   }
 
   const allErrors = [];
+  const allActual = [];
+  const allPredicted = [];
   const regions = [...regionMap.entries()]
     .map(([region, points]) => {
       const sortedPoints = points.sort((left, right) => left.time.localeCompare(right.time));
       const errors = sortedPoints.map((item) => item.predicted - item.actual);
       allErrors.push(...errors);
+      allActual.push(...sortedPoints.map((item) => item.actual));
+      allPredicted.push(...sortedPoints.map((item) => item.predicted));
 
       const actualTotal = sortedPoints.reduce((sum, item) => sum + item.actual, 0);
       const predictedTotal = sortedPoints.reduce((sum, item) => sum + item.predicted, 0);
@@ -424,15 +476,30 @@ function readXgboostTopRegionPredictions(filePath) {
 
   const mae = mean(allErrors.map((value) => Math.abs(value)));
   const rmse = Math.sqrt(mean(allErrors.map((value) => value * value)));
+  const actualMean = mean(allActual);
+  const ssRes = allPredicted.reduce((sum, predicted, index) => sum + (predicted - allActual[index]) ** 2, 0);
+  const ssTot = allActual.reduce((sum, actual) => sum + (actual - actualMean) ** 2, 0);
+  const r2 = ssTot === 0 ? 0 : 1 - ssRes / ssTot;
 
   return {
+    key: modelKey,
+    label: modelLabel,
+    metrics: [
+      { label: `${modelLabel} MAE`, value: mae.toFixed(2), change: '热点区域小时级', tone: 'teal' },
+      { label: `${modelLabel} RMSE`, value: rmse.toFixed(2), change: '热点区域小时级', tone: 'violet' },
+      { label: `${modelLabel} R²`, value: r2.toFixed(4), change: '区域拟合优度', tone: 'amber' },
+      { label: 'Top10 区域样本', value: String(regions.reduce((sum, region) => sum + region.sampleCount, 0)), change: '逐小时预测记录', tone: 'sky' },
+    ],
     summary: {
       regionCount: regions.length,
       sampleCount: regions.reduce((sum, region) => sum + region.sampleCount, 0),
       mae: mae.toFixed(2),
       rmse: rmse.toFixed(2),
+      r2: r2.toFixed(4),
+      topFeature: featureRanking[0]?.label ?? '--',
     },
     regions,
+    featureRanking,
   };
 }
 
@@ -658,9 +725,28 @@ function copyAsset(source, targetName) {
   return `/dashboard-assets/${targetName}`;
 }
 
-function copyOptionalAsset(relativePath, targetName) {
+function resolveAssetSource(relativePath, targetName) {
   const source = path.join(projectRoot, relativePath);
-  if (!fs.existsSync(source)) return null;
+  if (fs.existsSync(source)) return source;
+
+  const fallbackSource = path.join(assetRoot, targetName);
+  if (fs.existsSync(fallbackSource)) return fallbackSource;
+
+  return null;
+}
+
+function copyRequiredAsset(relativePath, targetName) {
+  const source = resolveAssetSource(relativePath, targetName);
+  if (!source) {
+    throw new Error(`Missing required asset: ${relativePath} (fallback: public/dashboard-assets/${targetName})`);
+  }
+
+  return copyAsset(source, targetName);
+}
+
+function copyOptionalAsset(relativePath, targetName) {
+  const source = resolveAssetSource(relativePath, targetName);
+  if (!source) return null;
 
   return copyAsset(source, targetName);
 }
@@ -681,7 +767,7 @@ function buildStaticAssets() {
   ];
 
   for (const [key, relativePath] of preprocessAssets) {
-    assets.preprocess[key] = copyAsset(path.join(projectRoot, relativePath), `preprocess/${path.basename(relativePath)}`);
+    assets.preprocess[key] = copyRequiredAsset(relativePath, `preprocess/${path.basename(relativePath)}`);
   }
 
   const modelAssets = [
@@ -694,7 +780,7 @@ function buildStaticAssets() {
   ];
 
   for (const [title, relativePath] of modelAssets) {
-    assets.models.push({ title, src: copyAsset(path.join(projectRoot, relativePath), `models/${path.basename(relativePath)}`) });
+    assets.models.push({ title, src: copyRequiredAsset(relativePath, `models/${path.basename(relativePath)}`) });
   }
 
   const optionalXgboostAssets = [
@@ -716,15 +802,13 @@ function buildStaticAssets() {
   }
 
   for (const month of monthConfigs) {
-    const monthDir = path.join(projectRoot, 'new', month.dir);
-
     assets.months[month.key] = {
-      pickupsByHour: copyAsset(path.join(monthDir, 'pickups_by_hour.png'), `${month.key}/pickups_by_hour.png`),
-      pickupsByDay: copyAsset(path.join(monthDir, 'pickups_by_day.png'), `${month.key}/pickups_by_day.png`),
-      pickupsByTime: copyAsset(path.join(monthDir, 'pickups_by_time.png'), `${month.key}/pickups_by_time.png`),
-      density: copyAsset(path.join(monthDir, 'pickup_density_geohash.png'), `${month.key}/pickup_density_geohash.png`),
-      densityGrid: copyAsset(path.join(monthDir, 'hourly_density_grid.png'), `${month.key}/hourly_density_grid.png`),
-      densityGif: copyAsset(path.join(monthDir, month.gif), `${month.key}/${month.gif}`),
+      pickupsByHour: copyRequiredAsset(path.join('new', month.dir, 'pickups_by_hour.png'), `${month.key}/pickups_by_hour.png`),
+      pickupsByDay: copyRequiredAsset(path.join('new', month.dir, 'pickups_by_day.png'), `${month.key}/pickups_by_day.png`),
+      pickupsByTime: copyRequiredAsset(path.join('new', month.dir, 'pickups_by_time.png'), `${month.key}/pickups_by_time.png`),
+      density: copyRequiredAsset(path.join('new', month.dir, 'pickup_density_geohash.png'), `${month.key}/pickup_density_geohash.png`),
+      densityGrid: copyRequiredAsset(path.join('new', month.dir, 'hourly_density_grid.png'), `${month.key}/hourly_density_grid.png`),
+      densityGif: copyRequiredAsset(path.join('new', month.dir, month.gif), `${month.key}/${month.gif}`),
     };
   }
 
@@ -831,7 +915,13 @@ async function main() {
   const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
   const weatherAggregates = buildWeatherAggregates(path.join(projectRoot, 'new/LCD_USW00094728_2014.csv'), combinedHourlyDemandMap);
   const predictionAggregates = buildPredictionAggregates(combinedHourlyDemandMap);
-  const xgboostTopRegions = readXgboostTopRegionPredictions(path.join(projectRoot, 'new/top_regions_actual_vs_pred_simple.csv'));
+  const predictDataRoot = path.join(publicRoot, 'predictData');
+  const treeModels = [
+    readTreeModelData('xgboost', 'XGBoost', path.join(predictDataRoot, 'xgboost')),
+    readTreeModelData('lightgbm', 'LightGBM', path.join(predictDataRoot, 'lightGBM')),
+    readTreeModelData('catboost', 'CatBoost', path.join(predictDataRoot, 'catboost')),
+  ];
+  const xgboostModel = treeModels.find((model) => model.key === 'xgboost') ?? readTreeModelData('xgboost', 'XGBoost', path.join(predictDataRoot, 'xgboost'));
   const stidModel = readStidModelData(path.join(projectRoot, 'new_model'));
   const featureInsights = readFeatureInsights(path.join(projectRoot, 'new/feature_analysis_report.md'));
   const maxFeatureScore = Math.max(...featureInsights.map((item) => item.importanceScore), 1);
@@ -889,13 +979,12 @@ async function main() {
     errorHistogram: predictionAggregates.errorHistogram,
     residualTrend: predictionAggregates.residualTrend,
     predictionTopErrors: predictionAggregates.predictionTopErrors,
-    xgboostMetrics: [
-      { label: 'XGBoost MAE', value: '99.83', change: '六月最后一周', tone: 'teal' },
-      { label: 'XGBoost RMSE', value: '125.51', change: '六月最后一周', tone: 'violet' },
-      { label: 'XGBoost R²', value: '0.9426', change: '拟合优度', tone: 'amber' },
-      { label: 'Top10 区域样本', value: String(xgboostTopRegions.summary.sampleCount), change: '逐小时预测记录', tone: 'sky' },
-    ],
-    xgboostTopRegions,
+    treeModels,
+    xgboostMetrics: xgboostModel.metrics,
+    xgboostTopRegions: {
+      summary: xgboostModel.summary,
+      regions: xgboostModel.regions,
+    },
     stidModel,
     dataSources: [
       {
@@ -917,6 +1006,11 @@ async function main() {
         name: '预处理与模型图片',
         paths: ['data_preprocess/output/*.png', 'new/may14/*.png|*.gif', 'new/jun14/*.png|*.gif', 'new/models/*.png'],
         usage: '天气关系图、空间热力图、模型预测/特征重要性图片展示。',
+      },
+      {
+        name: '树模型区域预测与特征排序',
+        paths: ['public/predictData/xgboost/*.csv', 'public/predictData/lightGBM/*.csv', 'public/predictData/catboost/*.csv'],
+        usage: 'XGBoost、LightGBM、CatBoost 的热点区域逐小时预测明细与特征排序。',
       },
       {
         name: '特征相关性报告',

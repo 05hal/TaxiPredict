@@ -4,6 +4,7 @@ import readline from 'node:readline';
 
 const webRoot = process.cwd();
 const projectRoot = path.resolve(webRoot, '..');
+const legacyRoot = path.join(projectRoot, 'legacy');
 const publicRoot = path.join(webRoot, 'public');
 const assetRoot = path.join(publicRoot, 'dashboard-assets');
 const dataPath = path.join(publicRoot, 'dashboard-data.json');
@@ -12,6 +13,7 @@ const monthConfigs = [
   { key: 'may14', label: '2014 年 5 月', shortLabel: '5 月', dir: 'may14', days: 31, gif: 'hourly_pickup_densitymay.gif' },
   { key: 'jun14', label: '2014 年 6 月', shortLabel: '6 月', dir: 'jun14', days: 30, gif: 'hourly_pickup_densityjune.gif' },
 ];
+const geohashBase32 = '0123456789bcdefghjkmnpqrstuvwxyz';
 
 function stripBom(value) {
   return value.charCodeAt(0) === 0xfeff ? value.slice(1) : value;
@@ -19,6 +21,16 @@ function stripBom(value) {
 
 function ensureDir(dir) {
   fs.mkdirSync(dir, { recursive: true });
+}
+
+function resolveProjectPath(relativePath) {
+  const directPath = path.join(projectRoot, relativePath);
+  if (fs.existsSync(directPath)) return directPath;
+
+  const legacyPath = path.join(legacyRoot, relativePath);
+  if (fs.existsSync(legacyPath)) return legacyPath;
+
+  return directPath;
 }
 
 function parseCsvLine(line) {
@@ -122,6 +134,45 @@ function mean(values) {
 
 function round(value, digits = 2) {
   return Number(value.toFixed(digits));
+}
+
+function decodeGeohashCenter(geohash) {
+  const value = String(geohash ?? '').trim().toLowerCase();
+  if (!value) return null;
+
+  let evenBit = true;
+  let latRange = [-90, 90];
+  let lonRange = [-180, 180];
+
+  for (const char of value) {
+    const index = geohashBase32.indexOf(char);
+    if (index < 0) return null;
+
+    for (const mask of [16, 8, 4, 2, 1]) {
+      if (evenBit) {
+        const midpoint = (lonRange[0] + lonRange[1]) / 2;
+        if (index & mask) lonRange[0] = midpoint;
+        else lonRange[1] = midpoint;
+      } else {
+        const midpoint = (latRange[0] + latRange[1]) / 2;
+        if (index & mask) latRange[0] = midpoint;
+        else latRange[1] = midpoint;
+      }
+
+      evenBit = !evenBit;
+    }
+  }
+
+  return {
+    latitude: round((latRange[0] + latRange[1]) / 2, 4),
+    longitude: round((lonRange[0] + lonRange[1]) / 2, 4),
+  };
+}
+
+function resolveGeohashCoordinates(regionKey, geohashCoordinateMap) {
+  const known = geohashCoordinateMap.get(regionKey);
+  if (known && Number.isFinite(known.latitude) && Number.isFinite(known.longitude)) return known;
+  return decodeGeohashCenter(regionKey);
 }
 
 function findFirstMatchingFile(dirPath, prefix) {
@@ -393,7 +444,7 @@ function buildPredictionAggregates(hourlyDemandMap) {
   };
 }
 
-function readTreeModelData(modelKey, modelLabel, modelDir) {
+function readTreeModelData(modelKey, modelLabel, modelDir, geohashCoordinateMap = new Map()) {
   const predictionsPath = findFirstMatchingFile(modelDir, 'top_regions_actual_vs_pred_simple');
   const featureRankingPath = findFirstMatchingFile(modelDir, 'feature_ranking');
   const featureRanking = readModelFeatureRanking(featureRankingPath);
@@ -418,11 +469,13 @@ function readTreeModelData(modelKey, modelLabel, modelDir) {
       },
       regions: [],
       featureRanking,
+      mapFrames: [],
     };
   }
 
   const rows = readCsvRecords(predictionsPath);
   const regionMap = new Map();
+  const timeMap = new Map();
 
   for (const record of rows) {
     const region = record['地点'];
@@ -441,6 +494,21 @@ function readTreeModelData(modelKey, modelLabel, modelDir) {
       error: round(predicted - actual, 2),
     });
     regionMap.set(region, current);
+
+    const coordinates = resolveGeohashCoordinates(region, geohashCoordinateMap);
+    if (coordinates) {
+      const timeBucket = timeMap.get(timestamp) ?? [];
+      timeBucket.push({
+        geohash: region,
+        latitude: coordinates.latitude,
+        longitude: coordinates.longitude,
+        predicted: round(predicted, 2),
+        actual,
+        error: round(predicted - actual, 2),
+        absError: round(Math.abs(predicted - actual), 2),
+      });
+      timeMap.set(timestamp, timeBucket);
+    }
   }
 
   const allErrors = [];
@@ -480,6 +548,23 @@ function readTreeModelData(modelKey, modelLabel, modelDir) {
   const ssRes = allPredicted.reduce((sum, predicted, index) => sum + (predicted - allActual[index]) ** 2, 0);
   const ssTot = allActual.reduce((sum, actual) => sum + (actual - actualMean) ** 2, 0);
   const r2 = ssTot === 0 ? 0 : 1 - ssRes / ssTot;
+  const mapFrames = [...timeMap.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([time, points]) => {
+      const rankedPoints = points
+        .sort((left, right) => right.predicted - left.predicted)
+        .slice(0, 12)
+        .map((point) => ({
+          ...point,
+          label: `${time.slice(5, 10)} ${time.slice(11, 13)}时`,
+        }));
+
+      return {
+        time,
+        label: `${time.slice(5, 10)} ${time.slice(11, 13)}时`,
+        points: rankedPoints,
+      };
+    });
 
   return {
     key: modelKey,
@@ -500,6 +585,7 @@ function readTreeModelData(modelKey, modelLabel, modelDir) {
     },
     regions,
     featureRanking,
+    mapFrames,
   };
 }
 
@@ -726,7 +812,7 @@ function copyAsset(source, targetName) {
 }
 
 function resolveAssetSource(relativePath, targetName) {
-  const source = path.join(projectRoot, relativePath);
+  const source = resolveProjectPath(relativePath);
   if (fs.existsSync(source)) return source;
 
   const fallbackSource = path.join(assetRoot, targetName);
@@ -824,10 +910,59 @@ async function main() {
   ensureDir(assetRoot);
 
   const assets = buildStaticAssets();
+  const existingDashboard = fs.existsSync(dataPath) ? JSON.parse(fs.readFileSync(dataPath, 'utf8')) : null;
+  const predictDataRoot = path.join(publicRoot, 'predictData');
+  const rawMonthAvailable = monthConfigs.every((month) => {
+    const monthDir = resolveProjectPath(path.join('new', month.dir));
+    return fs.existsSync(path.join(monthDir, 'summary.csv')) && fs.existsSync(path.join(monthDir, 'taxi_prediction_style_aggregated.csv'));
+  });
+
+  if (!rawMonthAvailable && existingDashboard) {
+    const fallbackGeohashPoints = [
+      ...(existingDashboard.geohashPoints ?? []),
+      ...((existingDashboard.months ?? []).flatMap((month) => month.geohashPoints ?? [])),
+    ];
+    const geohashCoordinateMap = new Map(
+      fallbackGeohashPoints
+        .filter((item) => item?.geohash && Number.isFinite(item.latitude) && Number.isFinite(item.longitude))
+        .map((item) => [item.geohash, { latitude: item.latitude, longitude: item.longitude }]),
+    );
+    const treeModels = [
+      readTreeModelData('xgboost', 'XGBoost', path.join(predictDataRoot, 'xgboost'), geohashCoordinateMap),
+      readTreeModelData('lightgbm', 'LightGBM', path.join(predictDataRoot, 'lightGBM'), geohashCoordinateMap),
+      readTreeModelData('catboost', 'CatBoost', path.join(predictDataRoot, 'catboost'), geohashCoordinateMap),
+    ];
+    const xgboostModel =
+      treeModels.find((model) => model.key === 'xgboost') ??
+      readTreeModelData('xgboost', 'XGBoost', path.join(predictDataRoot, 'xgboost'), geohashCoordinateMap);
+
+    fs.writeFileSync(
+      dataPath,
+      JSON.stringify(
+        {
+          ...existingDashboard,
+          generatedAt: new Date().toISOString(),
+          assets: existingDashboard.assets ?? assets,
+          treeModels,
+          xgboostMetrics: xgboostModel.metrics,
+          xgboostTopRegions: {
+            summary: xgboostModel.summary,
+            regions: xgboostModel.regions,
+          },
+        },
+        null,
+        2,
+      ),
+      'utf8',
+    );
+    console.log(`Dashboard data prepared from cached base: ${path.relative(webRoot, dataPath)}`);
+    return;
+  }
+
   const monthData = [];
 
   for (const month of monthConfigs) {
-    const monthDir = path.join(projectRoot, 'new', month.dir);
+    const monthDir = resolveProjectPath(path.join('new', month.dir));
     const summary = readSingleRowCsv(path.join(monthDir, 'summary.csv'));
     const bases = readBaseCounts(path.join(monthDir, 'base_counts.csv'));
     const aggregates = await aggregatePredictionCsv(path.join(monthDir, 'taxi_prediction_style_aggregated.csv'));
@@ -913,17 +1048,21 @@ async function main() {
   }
 
   const weekdayLabels = ['周一', '周二', '周三', '周四', '周五', '周六', '周日'];
-  const weatherAggregates = buildWeatherAggregates(path.join(projectRoot, 'new/LCD_USW00094728_2014.csv'), combinedHourlyDemandMap);
+  const weatherAggregates = buildWeatherAggregates(resolveProjectPath('new/LCD_USW00094728_2014.csv'), combinedHourlyDemandMap);
   const predictionAggregates = buildPredictionAggregates(combinedHourlyDemandMap);
-  const predictDataRoot = path.join(publicRoot, 'predictData');
+  const geohashCoordinateMap = new Map(
+    [...combinedGeohashMap.values()].map((item) => [item.geohash, { latitude: item.latitude, longitude: item.longitude }]),
+  );
   const treeModels = [
-    readTreeModelData('xgboost', 'XGBoost', path.join(predictDataRoot, 'xgboost')),
-    readTreeModelData('lightgbm', 'LightGBM', path.join(predictDataRoot, 'lightGBM')),
-    readTreeModelData('catboost', 'CatBoost', path.join(predictDataRoot, 'catboost')),
+    readTreeModelData('xgboost', 'XGBoost', path.join(predictDataRoot, 'xgboost'), geohashCoordinateMap),
+    readTreeModelData('lightgbm', 'LightGBM', path.join(predictDataRoot, 'lightGBM'), geohashCoordinateMap),
+    readTreeModelData('catboost', 'CatBoost', path.join(predictDataRoot, 'catboost'), geohashCoordinateMap),
   ];
-  const xgboostModel = treeModels.find((model) => model.key === 'xgboost') ?? readTreeModelData('xgboost', 'XGBoost', path.join(predictDataRoot, 'xgboost'));
-  const stidModel = readStidModelData(path.join(projectRoot, 'new_model'));
-  const featureInsights = readFeatureInsights(path.join(projectRoot, 'new/feature_analysis_report.md'));
+  const xgboostModel =
+    treeModels.find((model) => model.key === 'xgboost') ??
+    readTreeModelData('xgboost', 'XGBoost', path.join(predictDataRoot, 'xgboost'), geohashCoordinateMap);
+  const stidModel = readStidModelData(resolveProjectPath('new_model'));
+  const featureInsights = readFeatureInsights(resolveProjectPath('new/feature_analysis_report.md'));
   const maxFeatureScore = Math.max(...featureInsights.map((item) => item.importanceScore), 1);
 
   const dashboardData = {
